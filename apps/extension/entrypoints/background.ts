@@ -82,6 +82,11 @@ async function remember(m: { origin: string; sig: string; key: string; label?: s
 }
 
 export default defineBackground(() => {
+  // First run: open the welcome flow.
+  browser.runtime.onInstalled.addListener(({ reason }) => {
+    if (reason === 'install') void browser.runtime.openOptionsPage();
+  });
+
   browser.runtime.onMessage.addListener((msg: unknown, sender: { tab?: { id?: number } }) => {
     const m = msg as { type?: string; tabId?: number; fields?: FieldInfo[] } | undefined;
     if (!m?.type) return undefined;

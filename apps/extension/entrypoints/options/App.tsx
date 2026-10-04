@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { browser } from 'wxt/browser';
 import { unlock } from '@/lib/store';
 import { AiSettings } from './AiSettings';
 import { DataTab } from './DataTab';
 import { ProfilesTab } from './ProfilesTab';
 import { RulesTab } from './RulesTab';
 import { SubmissionTab } from './SubmissionTab';
+import { Welcome } from './Welcome';
 import { useStore } from './useStore';
 
 const VIEWS = [
@@ -45,16 +47,21 @@ function Unlock({ onDone }: { onDone: () => void }) {
 export function App() {
   const store = useStore();
   const [view, setView] = useState<View>('profiles');
+  const [onboarded, setOnboarded] = useState<boolean | null>(null);
+  useEffect(() => {
+    void browser.storage.local.get('onboarded').then((r) => setOnboarded(r.onboarded === true));
+  }, []);
 
   if (store.locked) return <Unlock onDone={store.reload} />;
-  if (!store.data) return null;
+  if (!store.data || onboarded === null) return null;
+  if (!onboarded) return <Welcome onDone={() => setOnboarded(true)} />;
   const { data, update, reload } = store;
 
   return (
     <main className="options">
       <nav className="tabs" aria-label="Sections">
         {VIEWS.map((v) => (
-          <button key={v.id} aria-current={view === v.id ? 'page' : undefined} aria-selected={view === v.id} onClick={() => setView(v.id)}>
+          <button key={v.id} aria-current={view === v.id ? 'page' : undefined} onClick={() => setView(v.id)}>
             {v.title}
           </button>
         ))}

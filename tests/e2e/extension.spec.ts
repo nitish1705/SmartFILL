@@ -1,4 +1,5 @@
 import { chromium, expect, test, type BrowserContext, type Page, type Worker } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 import { build } from 'esbuild';
 import { createServer, type Server } from 'node:http';
 import { readFileSync } from 'node:fs';
@@ -318,5 +319,104 @@ test('custom dropdown adapter works on a real react-select', async () => {
   await overlay.getByRole('button', { name: /Fill selected/ }).click();
   await expect(overlay.locator('[role=status]')).toContainText('Filled 1');
   await expect(page.locator('[class*="singleValue"]')).toHaveText('India');
+  await page.close();
+});
+
+// ── Phase 5: onboarding, privacy page, lock, accessibility ─────────────────────────
+
+async function options(): Promise<Page> {
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extId}/options.html`);
+  return page;
+}
+
+async function expectNoA11yViolations(page: Page, include?: string) {
+  const builder = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']);
+  const results = await (include ? builder.include(include) : builder).analyze();
+  const summary = results.violations.map((v) => `${v.id} (${v.impact}): ${v.nodes.map((n) => n.target.join(' ')).slice(0, 3).join(' | ')}`);
+  expect(summary, summary.join(' ; ')).toEqual([]);
+}
+
+test('onboarding: three screens, then the profile editor; shown only once', async () => {
+  await sw.evaluate(() => chrome.storage.local.remove('onboarded'));
+  const page = await options();
+  await expect(page.getByRole('heading', { name: /Fill forms from details you have verified/ })).toBeVisible();
+  await expectNoA11yViolations(page);
+  await page.getByRole('button', { name: 'Next' }).click();
+  await expect(page.getByRole('heading', { name: 'Private by design' })).toBeFocused();
+  await expectNoA11yViolations(page);
+  await page.getByRole('button', { name: 'Next' }).click();
+  await page.getByRole('button', { name: 'Set up my profile' }).click();
+  await expect(page.getByRole('heading', { name: 'Profiles' })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Profiles' })).toBeVisible(); // not shown again
+  await page.close();
+});
+
+test('every options screen, the popup, the privacy page and the review overlay pass axe (WCAG 2.1 AA)', async () => {
+  await sw.evaluate(async (d) => chrome.storage.local.set({ onboarded: true, data: d }), store());
+  const page = await options();
+  for (const tab of ['Profiles', 'Paper submission', 'AI assist', 'Site rules', 'Data & privacy']) {
+    await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: tab }).click();
+    await expectNoA11yViolations(page);
+  }
+  await page.goto(`chrome-extension://${extId}/privacy.html`);
+  await expectNoA11yViolations(page);
+  await page.goto(`chrome-extension://${extId}/popup.html`);
+  await page.waitForTimeout(300);
+  await expectNoA11yViolations(page);
+  await page.close();
+
+  const { page: form, tabId } = await open('01-conference-registration.html');
+  await send('smartfill:review', tabId);
+  await expect(form.locator('#smartfill-overlay')).toHaveCount(1);
+  await expectNoA11yViolations(form, '#smartfill-overlay');
+  await form.close();
+});
+
+test('lock: data is encrypted at rest, locked pages get nothing, unlock restores', async () => {
+  await sw.evaluate(async (d) => { await chrome.storage.local.clear(); await chrome.storage.session.clear(); await chrome.storage.local.set({ onboarded: true, data: d }); }, store());
+  const page = await options();
+  page.on('dialog', (d) => void d.accept());
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Data & privacy' }).click();
+  await page.getByLabel('New passphrase (8+ characters)').fill('correct horse battery');
+  await page.getByLabel('Repeat passphrase').fill('correct horse battery');
+  await page.getByRole('button', { name: 'Enable lock' }).click();
+  await expect(page.getByText('Your data is encrypted at rest.')).toBeVisible();
+
+  // nothing readable remains in storage
+  const dump = JSON.stringify(await sw.evaluate(() => chrome.storage.local.get(null)));
+  expect(dump).toContain('smartfill-encrypted');
+  expect(dump).not.toContain('ada@example.edu');
+  expect(dump).not.toContain('Grace');
+  expect(await sw.evaluate(async () => Object.keys(await chrome.storage.local.get(['data', 'profile'])))).toEqual([]);
+
+  // while unlocked, filling works
+  const { page: form, tabId } = await open('08-contact-form.html');
+  expect(((await send('smartfill:scan', tabId)) as any).ok).toBe(true);
+
+  // lock: the page script gets nothing
+  await page.getByRole('button', { name: 'Lock now' }).click();
+  await expect(page.getByRole('heading', { name: 'SmartFill is locked' })).toBeVisible();
+  await expectNoA11yViolations(page);
+  const locked = (await send('smartfill:scan', tabId)) as any;
+  expect(locked).toMatchObject({ ok: false, locked: true });
+  await expect(form.locator('[name=email]')).toHaveValue('');
+
+  // wrong passphrase, then right passphrase
+  await page.getByLabel('Passphrase').fill('nope nope nope');
+  await page.getByRole('button', { name: 'Unlock' }).click();
+  await expect(page.getByRole('alert')).toContainText('Wrong passphrase');
+  await page.getByLabel('Passphrase').fill('correct horse battery');
+  await page.getByRole('button', { name: 'Unlock' }).click();
+  await expect(page.getByRole('heading', { name: 'Data & privacy' })).toBeVisible(); // back where the user was
+  expect(((await send('smartfill:scan', tabId)) as any).ok).toBe(true);
+  await form.close();
+
+  // delete everything wipes storage
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Data & privacy' }).click();
+  await page.getByRole('button', { name: 'Delete all data' }).click();
+  await expect(page.getByText('All SmartFill data has been deleted.')).toBeVisible();
+  expect(await sw.evaluate(async () => Object.keys(await chrome.storage.local.get(null)))).toEqual([]);
   await page.close();
 });

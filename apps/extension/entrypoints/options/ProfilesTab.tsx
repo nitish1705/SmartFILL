@@ -76,9 +76,9 @@ export function ProfilesTab({ data, update }: Props) {
         </p>
       </header>
 
-      <div className="tabs" role="tablist" aria-label="Profiles">
+      <div className="tabs" role="group" aria-label="Profiles">
         {data.profiles.map((p) => (
-          <button key={p.id} role="tab" aria-selected={p.id === selected.id} onClick={() => setSelectedId(p.id)}>
+          <button key={p.id} aria-pressed={p.id === selected.id} onClick={() => setSelectedId(p.id)}>
             {p.name}
             {p.id === data.activeProfileId ? ' (me)' : ''}
           </button>
@@ -103,9 +103,9 @@ export function ProfilesTab({ data, update }: Props) {
         </label>
       </div>
 
-      <div className="tabs" role="tablist" aria-label="Field groups">
+      <div className="tabs" role="group" aria-label="Field groups">
         {GROUPS.map((g) => (
-          <button key={g.id} role="tab" aria-selected={group === g.id} onClick={() => setGroup(g.id)}>{g.title}</button>
+          <button key={g.id} aria-pressed={group === g.id} onClick={() => setGroup(g.id)}>{g.title}</button>
         ))}
       </div>
 

@@ -14,6 +14,7 @@
     "dev": "npm run dev -w @smartfill/extension",
     "build": "npm run build -w @smartfill/extension",
     "zip": "npm run zip -w @smartfill/extension",
+    "build:firefox": "npm run build:firefox -w @smartfill/extension",
     "fetch-model": "node scripts/fetch-model.mjs",
     "e2e": "cross-env SMARTFILL_E2E=1 npm run build -w @smartfill/extension && playwright test"
   },
@@ -21,6 +22,7 @@
     "@vitejs/plugin-react": "^4.3.4"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@playwright/test": "^1.63.0",
     "@types/jsdom": "^21.1.7",
     "@types/node": "^20.14.0",

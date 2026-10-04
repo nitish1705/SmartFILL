@@ -4,10 +4,17 @@ import { JSDOM } from 'jsdom';
 import type { Embedder, LlmRequest, MatchResult } from '@smartfill/core';
 import { analyzeDocument, analyzeDocumentAsync, detectFields, type Analysis } from '@smartfill/dom';
 
-const FIXTURES = join(__dirname, '..', 'fixtures', 'forms');
+const SETS = {
+  /** Development set: used while building rules and calibrating embeddings. */
+  dev: join(__dirname, '..', 'fixtures', 'forms'),
+  /** Held-out test set: written after the rules were frozen; never used for tuning. */
+  test: join(__dirname, '..', 'fixtures', 'test'),
+} as const;
+export type FixtureSet = keyof typeof SETS;
 export const profile: Record<string, string> = JSON.parse(readFileSync(join(__dirname, 'profile.json'), 'utf8'));
 
 export interface EvalOptions {
+  set?: FixtureSet;
   /** LLM service; `ctx.lookup(fieldId)` maps a request field id back to `${form}|${ref}` (for oracles). */
   llm?: (request: LlmRequest, ctx: { lookup: (fieldId: string) => string }) => Promise<unknown>;
   /** Enable the embedding layer with this embedder. */
@@ -54,7 +61,8 @@ export interface Metrics {
   rows: Row[];
 }
 
-export function loadFixtures(): { file: string; html: string; truth: Record<string, string | null> }[] {
+export function loadFixtures(set: FixtureSet = 'dev'): { file: string; html: string; truth: Record<string, string | null> }[] {
+  const FIXTURES = SETS[set];
   return readdirSync(FIXTURES)
     .filter((f) => f.endsWith('.html'))
     .sort()
@@ -77,7 +85,7 @@ export async function evaluate(opts: EvalOptions = {}): Promise<Metrics> {
   let fillsWithReview = 0;
   const times: number[] = [];
 
-  for (const { file, html, truth } of loadFixtures()) {
+  for (const { file, html, truth } of loadFixtures(opts.set)) {
     const doc = new JSDOM(html).window.document;
     const t0 = performance.now();
     let analysis: Analysis;

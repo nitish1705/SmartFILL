@@ -1,0 +1,5 @@
+participant,form,condition,seconds
+P01,author-details,manual,150
+P01,author-details,smartfill,55
+P02,author-details,manual,170
+P02,author-details,smartfill,60

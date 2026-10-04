@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SmartFill – Privacy policy</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body { font: 15px/1.6 system-ui, sans-serif; max-width: 760px; margin: 32px auto; padding: 0 16px; }
+      h1 { font-size: 24px; } h2 { font-size: 18px; margin-top: 28px; }
+      table { border-collapse: collapse; width: 100%; font-size: 14px; }
+      th, td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid #8884; }
+      code { font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>SmartFill privacy policy</h1>
+      <p>SmartFill fills web forms from a profile you enter yourself. It is built so that your information stays on your device.</p>
+
+      <h2>What SmartFill stores</h2>
+      <ul>
+        <li>The profiles you enter (yours and, optionally, co-authors’), paper submissions you define, and — only if you turn learning on — per-site rules (a field’s label and the profile field you chose for it, never a value).</li>
+        <li>Settings, including the AI endpoint if you configure one.</li>
+      </ul>
+      <p>All of this is stored in your browser’s local extension storage. If you enable the lock it is encrypted with a key derived from your passphrase (PBKDF2-SHA-256, AES-256-GCM).</p>
+
+      <h2>What SmartFill does not do</h2>
+      <ul>
+        <li>No accounts, no servers operated by us, no analytics, no telemetry, no advertising, no sale or sharing of data.</li>
+        <li>It never submits forms, and never fills passwords, payment-card data, one-time codes, security answers or government/bank identifiers.</li>
+        <li>It does not read pages in the background: it runs only when you click its button or use its shortcut.</li>
+      </ul>
+
+      <h2>Optional AI assist (off by default)</h2>
+      <p>If you enable it and point it at your own proxy or a local Ollama model, SmartFill may send, for fields it cannot decide, the field’s label, placeholder, section heading, page title and a short list of candidate profile-field names. It never sends your profile values, the page URL, or page content. Answers are validated and can never fill a field without your review. The exact request is shown in Options → AI assist.</p>
+
+      <h2>Permissions</h2>
+      <table>
+        <thead><tr><th scope="col">Permission</th><th scope="col">Why</th></tr></thead>
+        <tbody>
+          <tr><td><code>activeTab</code>, <code>scripting</code></td><td>Lets SmartFill read and fill the form on the page you are looking at, only after you click it. Without these it would need access to every site.</td></tr>
+          <tr><td><code>storage</code></td><td>Saves your profiles and settings on this device.</td></tr>
+          <tr><td><code>offscreen</code></td><td>Runs the bundled on-device matching model in a background document.</td></tr>
+          <tr><td>optional host permission</td><td>Requested only if you enable AI assist, and only for the one endpoint you enter.</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Your controls</h2>
+      <ul>
+        <li>Export your data (optionally encrypted), import it elsewhere, or delete everything from Options → Data &amp; privacy.</li>
+        <li>View and delete learned site rules at any time.</li>
+        <li>Uninstalling the extension removes all of its stored data.</li>
+      </ul>
+
+      <h2>Open source</h2>
+      <p>The complete source is available so you can verify these claims.</p>
+    </main>
+  </body>
+</html>

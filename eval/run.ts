@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Embedder } from '@smartfill/core';
 import { createNodeEmbedder, modelAvailable } from './embedder';
-import { correctionsNeeded, evaluate, learnFromCorrections, loadFixtures, riskCoverage, type Metrics } from './evaluate';
+import { correctionsNeeded, evaluate, learnFromCorrections, loadFixtures, riskCoverage, type FixtureSet, type Metrics } from './evaluate';
 
 const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
 
@@ -22,8 +22,11 @@ function summary(name: string, m: Metrics) {
   };
 }
 
+const SET: FixtureSet = process.argv.includes('--test') ? 'test' : 'dev';
+console.log(`fixture set: ${SET}${SET === 'test' ? ' (held-out; do not tune on this)' : ''}`);
+
 (async () => {
-  const rules = await evaluate();
+  const rules = await evaluate({ set: SET });
   const table = [summary('rules', rules)];
   let best = rules;
 
@@ -32,15 +35,16 @@ function summary(name: string, m: Metrics) {
     let calls = 0;
     const embedder: Embedder = async (t) => ((calls += t.length), base(t));
     await embedder(['warm up']); // load model + JIT outside the timing
-    const withEmb = await evaluate({ embedder });
+    const withEmb = await evaluate({ embedder, set: SET });
     table.push(summary('rules + embeddings', withEmb));
     best = withEmb;
 
     // Upper bound for the LLM layer: an oracle that follows the protocol perfectly (answers the true key when
     // it is among the candidates, else null). A real model can only do worse; run services/llm-proxy to measure it.
     const truth = new Map<string, string | null>();
-    for (const fx of loadFixtures()) for (const [ref, key] of Object.entries(fx.truth)) truth.set(`${fx.file}|${ref}`, key);
+    for (const fx of loadFixtures(SET)) for (const [ref, key] of Object.entries(fx.truth)) truth.set(`${fx.file}|${ref}`, key);
     const withLlm = await evaluate({
+      set: SET,
       embedder,
       llm: async (request, ctx) => ({
         results: request.fields.map((f) => {
@@ -57,8 +61,8 @@ function summary(name: string, m: Metrics) {
   }
 
   // Site learning: user corrections from visit 1 are applied on visit 2 (same forms).
-  const visit1 = await evaluate();
-  const visit2 = await evaluate({ learned: learnFromCorrections(visit1) });
+  const visit1 = await evaluate({ set: SET });
+  const visit2 = await evaluate({ set: SET, learned: learnFromCorrections(visit1) });
   table.push(summary('rules, 2nd visit (site learning)', visit2));
   console.log(`corrections needed: visit 1 = ${correctionsNeeded(visit1)}, visit 2 = ${correctionsNeeded(visit2)} (of ${visit1.matchable} matchable fields)`);
 

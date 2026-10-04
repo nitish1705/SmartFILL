@@ -46,7 +46,7 @@ input, textarea { font: inherit; width: 100%; padding: 6px 8px; border: 1px soli
 /* options */
 .options { max-width: 720px; margin: 24px auto; padding: 0 16px; display: grid; gap: 16px; }
 .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
-.tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.tabs button[aria-pressed="true"], .tabs button[aria-current="page"] { background: var(--accent); border-color: var(--accent); color: #fff; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
 .grid label { display: grid; gap: 4px; }
 .grid .wide { grid-column: 1 / -1; }

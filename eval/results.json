@@ -1,54 +1,54 @@
 [
   {
     "config": "rules",
-    "fields": 210,
-    "fills": 78,
+    "fields": 90,
+    "fills": 34,
     "precision": "100.0%",
-    "recall(auto)": "62.4%",
-    "prec(+review)": "97.6%",
-    "recall(+review)": "96.0%",
+    "recall(auto)": "54.8%",
+    "prec(+review)": "100.0%",
+    "recall(+review)": "91.9%",
     "FAR": "0.0%",
     "USR": "100.0%",
-    "coverage": "37.1%",
-    "ms/form": "12.9"
+    "coverage": "37.8%",
+    "ms/form": "15.1"
   },
   {
     "config": "rules + embeddings",
-    "fields": 210,
-    "fills": 78,
+    "fields": 90,
+    "fills": 34,
     "precision": "100.0%",
-    "recall(auto)": "62.4%",
-    "prec(+review)": "97.6%",
-    "recall(+review)": "96.0%",
+    "recall(auto)": "54.8%",
+    "prec(+review)": "100.0%",
+    "recall(+review)": "91.9%",
     "FAR": "0.0%",
     "USR": "100.0%",
-    "coverage": "37.1%",
-    "ms/form": "22.1"
+    "coverage": "37.8%",
+    "ms/form": "21.5"
   },
   {
     "config": "rules + emb + LLM (oracle upper bound)",
-    "fields": 210,
-    "fills": 78,
+    "fields": 90,
+    "fills": 34,
     "precision": "100.0%",
-    "recall(auto)": "62.4%",
-    "prec(+review)": "97.6%",
-    "recall(+review)": "99.2%",
+    "recall(auto)": "54.8%",
+    "prec(+review)": "100.0%",
+    "recall(+review)": "98.4%",
     "FAR": "0.0%",
     "USR": "100.0%",
-    "coverage": "37.1%",
-    "ms/form": "323.5"
+    "coverage": "37.8%",
+    "ms/form": "25.0"
   },
   {
     "config": "rules, 2nd visit (site learning)",
-    "fields": 210,
-    "fills": 125,
+    "fields": 90,
+    "fills": 62,
     "precision": "100.0%",
     "recall(auto)": "100.0%",
-    "prec(+review)": "97.7%",
+    "prec(+review)": "100.0%",
     "recall(+review)": "100.0%",
     "FAR": "0.0%",
     "USR": "100.0%",
-    "coverage": "59.5%",
-    "ms/form": "14.6"
+    "coverage": "68.9%",
+    "ms/form": "16.1"
   }
 ]
