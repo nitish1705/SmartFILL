@@ -28,6 +28,30 @@ export const ProfileSchema = z.object({
   updatedAt: z.number(),
 });
 
+export const SubmissionSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  authors: z.array(
+    z.object({
+      profileId: z.string(),
+      order: z.number().int(),
+      corresponding: z.boolean(),
+      role: z.string().optional(),
+    }),
+  ),
+});
+
+export const SiteMappingSchema = z.object({
+  origin: z.string(),
+  fieldSignature: z.string(),
+  /** Human-readable label, so the management UI is meaningful. Never a value. */
+  label: z.string().optional(),
+  key: z.string(),
+  source: z.enum(['user_correction', 'user_confirmed']),
+  hits: z.number().int(),
+  updatedAt: z.number(),
+});
+
 export const LlmResultSchema = z.object({
   field_id: z.string(),
   matched_profile_key: z.string().nullable(),
@@ -41,6 +65,8 @@ export const LlmResponseSchema = z.object({ results: z.array(LlmResultSchema).ma
 export type Thresholds = z.infer<typeof ThresholdsSchema>;
 export type Settings = z.infer<typeof SettingsSchema>;
 export type Profile = z.infer<typeof ProfileSchema>;
+export type Submission = z.infer<typeof SubmissionSchema>;
+export type SiteMapping = z.infer<typeof SiteMappingSchema>;
 export type LlmResponse = z.infer<typeof LlmResponseSchema>;
 
 export const DEFAULT_SETTINGS: Settings = {

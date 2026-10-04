@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { matchFields, matchFieldsAsync, matchOption, normalizeIdentifier, normalizeText, type FieldInfo } from './index';
+import { fieldSignature, matchFields, matchFieldsAsync, matchOption, normalizeIdentifier, normalizeText, type FieldInfo } from './index';
 
 function field(over: Partial<FieldInfo['context']> & { type?: string; control?: FieldInfo['controlType'] } = {}, extra: Partial<FieldInfo> = {}): FieldInfo {
   const { type, control, ...context } = over;
@@ -269,5 +269,74 @@ describe('LLM fallback protocol', () => {
     await matchFieldsAsync([field({ label: 'Card number' })], { values: v }, { rank: async () => [[{ key: 'academic.institution', cosine: 1, score: 0.3 }]], llm });
     await matchFieldsAsync([field({ label: 'Mystery thing' })], { values: {} }, { rank: async () => [[{ key: 'academic.institution', cosine: 1, score: 0.3 }]], llm });
     expect(calls).toBe(0);
+  });
+});
+
+describe('multi-author submissions', () => {
+  const ada = { 'personal.first_name': 'Ada', 'personal.email': 'ada@example.edu' };
+  const grace = { 'personal.first_name': 'Grace', 'personal.email': 'grace@navy.mil' };
+  const alan = { 'personal.first_name': 'Alan', 'personal.email': 'alan@bletchley.uk' };
+  const blocks = (n: number): FieldInfo[] =>
+    Array.from({ length: n }, (_, b) => [
+      { ...field({ label: 'First name', authorIndex: b + 1 }), fieldId: `fn${b}` },
+      { ...field({ label: 'Email', type: 'email', authorIndex: b + 1 }), fieldId: `em${b}` },
+      { ...field({ label: 'Corresponding author', authorIndex: b + 1, type: 'checkbox', control: 'checkbox' }), fieldId: `co${b}` },
+    ]).flat();
+
+  it('maps block i → author i, in order, with the corresponding flag', () => {
+    const authors = [{ values: ada, corresponding: false }, { values: grace, corresponding: true }, { values: alan, corresponding: false }];
+    const rs = matchFields(blocks(3), { values: ada, authors });
+    const by = Object.fromEntries(rs.map((r) => [r.fieldId, r]));
+    expect([by.fn0!.value, by.fn1!.value, by.fn2!.value]).toEqual(['Ada', 'Grace', 'Alan']);
+    expect([by.em0!.value, by.em1!.value, by.em2!.value]).toEqual(['ada@example.edu', 'grace@navy.mil', 'alan@bletchley.uk']);
+    // only the corresponding author's box gets ticked; others are left alone
+    expect(by.co1).toMatchObject({ key: 'submission.corresponding_author', value: 'true' });
+    expect(by.co0!.value).toBeUndefined();
+    expect(by.co2!.value).toBeUndefined();
+  });
+
+  it('leaves extra blocks blank when the submission has fewer authors', () => {
+    const rs = matchFields(blocks(3), { values: ada, authors: [{ values: ada, corresponding: true }] });
+    const skipped = rs.filter((r) => r.fieldId.endsWith('1') || r.fieldId.endsWith('2'));
+    expect(skipped.every((r) => r.decision === 'skip' && r.value === undefined)).toBe(true);
+    expect(skipped[0]!.reason).toMatch(/no author #2/);
+  });
+
+  it('never reorders: numbering gaps / 0-based indexes still map by position', () => {
+    const f = [0, 5].map((i) => ({ ...field({ label: 'First name', authorIndex: i }), fieldId: `x${i}` }));
+    const rs = matchFields(f, { values: ada, authors: [{ values: ada, corresponding: false }, { values: grace, corresponding: false }] });
+    expect(rs.map((r) => r.value)).toEqual(['Ada', 'Grace']);
+  });
+
+  it('without a corresponding author the checkbox stays untouched', () => {
+    const rs = matchFields(blocks(1), { values: ada, authors: [{ values: ada, corresponding: false }] });
+    expect(rs.find((r) => r.fieldId === 'co0')!.value).toBeUndefined();
+  });
+});
+
+describe('radio groups, checkboxes and custom dropdowns', () => {
+  const opts = [{ text: 'Male', value: 'm' }, { text: 'Female', value: 'f' }];
+  const v = { 'personal.gender': 'Female', 'personal.country': 'India' };
+  it('radio groups pick the matching option value', () => {
+    const r = matchFields([field({ label: 'Gender', control: 'radio-group' }, { options: opts, inputType: 'radio' })], { values: v })[0]!;
+    expect(r).toMatchObject({ key: 'personal.gender', decision: 'auto', value: 'f' });
+  });
+  it('a checkbox never receives text values and a text input never receives a boolean', () => {
+    expect(matchFields([field({ label: 'Country', control: 'checkbox', type: 'checkbox' })], { values: v })[0]!.decision).toBe('skip');
+    const r = matchFields([field({ label: 'Corresponding author' })], { values: { 'submission.corresponding_author': 'true' } })[0]!;
+    expect(r.decision).toBe('skip');
+  });
+  it('custom dropdowns are capped at review (options unknown until opened)', () => {
+    const r = matchFields([field({ label: 'Country', control: 'custom' }, { inputType: undefined })], { values: v })[0]!;
+    expect(r).toMatchObject({ key: 'personal.country', decision: 'review', value: 'India' });
+  });
+});
+
+describe('site signatures', () => {
+  it('are stable, and differ per author block / name', () => {
+    const a = fieldSignature(field({ label: 'Email', name: 'authors[1][email]' }));
+    expect(a).toBe(fieldSignature(field({ label: 'Email', name: 'authors[1][email]' })));
+    expect(a).not.toBe(fieldSignature(field({ label: 'Email', name: 'authors[2][email]' })));
+    expect(a).toMatch(/^[0-9a-f]{8}$/);
   });
 });

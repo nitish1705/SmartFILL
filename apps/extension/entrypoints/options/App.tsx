@@ -1,103 +1,69 @@
-import { useEffect, useMemo, useState } from 'react';
-import { REGISTRY } from '@smartfill/core';
-import { getProfile, saveProfile } from '@/lib/storage';
+import { useState } from 'react';
+import { unlock } from '@/lib/store';
 import { AiSettings } from './AiSettings';
+import { DataTab } from './DataTab';
+import { ProfilesTab } from './ProfilesTab';
+import { RulesTab } from './RulesTab';
+import { SubmissionTab } from './SubmissionTab';
+import { useStore } from './useStore';
 
-const GROUPS = [
-  { id: 'personal', title: 'Personal' },
-  { id: 'academic', title: 'Academic' },
-  { id: 'professional', title: 'Professional' },
-  { id: 'research', title: 'Research' },
+const VIEWS = [
+  { id: 'profiles', title: 'Profiles' },
+  { id: 'submission', title: 'Paper submission' },
+  { id: 'ai', title: 'AI assist' },
+  { id: 'rules', title: 'Site rules' },
+  { id: 'data', title: 'Data & privacy' },
 ] as const;
+type View = (typeof VIEWS)[number]['id'];
 
-export function App() {
-  const [view, setView] = useState<'profile' | 'ai'>('profile');
+function Unlock({ onDone }: { onDone: () => void }) {
+  const [pass, setPass] = useState('');
+  const [err, setErr] = useState('');
   return (
     <main className="options">
-      <nav className="tabs" aria-label="Sections">
-        <button aria-selected={view === 'profile'} onClick={() => setView('profile')}>Profile</button>
-        <button aria-selected={view === 'ai'} onClick={() => setView('ai')}>AI assist</button>
-      </nav>
-      {view === 'profile' ? <ProfileEditor /> : <AiSettings />}
+      <h1>SmartFill is locked</h1>
+      <form
+        style={{ display: 'grid', gap: 12, maxWidth: 360 }}
+        onSubmit={async (e) => {
+          e.preventDefault();
+          try {
+            await unlock(pass);
+            onDone();
+          } catch {
+            setErr('Wrong passphrase.');
+          }
+        }}
+      >
+        <label>Passphrase<input type="password" autoFocus value={pass} onChange={(e) => setPass(e.target.value)} /></label>
+        <button className="primary" type="submit">Unlock</button>
+        {err && <p role="alert" className="error">{err}</p>}
+      </form>
     </main>
   );
 }
 
-function ProfileEditor() {
-  const [group, setGroup] = useState<(typeof GROUPS)[number]['id']>('personal');
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [loaded, setLoaded] = useState(false);
-  const [saved, setSaved] = useState(false);
+export function App() {
+  const store = useStore();
+  const [view, setView] = useState<View>('profiles');
 
-  useEffect(() => {
-    void getProfile().then((p) => {
-      setValues(p.values);
-      setLoaded(true);
-    });
-  }, []);
-
-  // Sensitive keys (e.g. student ID) are never filled, so there is no reason to store them.
-  const keys = useMemo(
-    () => REGISTRY.filter((d) => !d.sensitive && d.key.startsWith(`${group}.`)),
-    [group],
-  );
-
-  const set = (key: string, v: string) => {
-    setSaved(false);
-    setValues((cur) => ({ ...cur, [key]: v }));
-  };
-
-  const save = async () => {
-    const p = await saveProfile(values);
-    setValues(p.values);
-    setSaved(true);
-  };
-
-  if (!loaded) return null;
+  if (store.locked) return <Unlock onDone={store.reload} />;
+  if (!store.data) return null;
+  const { data, update, reload } = store;
 
   return (
-    <div style={{ display: 'grid', gap: 16 }}>
-      <header>
-        <h1>Your SmartFill profile</h1>
-        <p className="muted">
-          Only enter information you have verified. It is stored on this device and is never sent anywhere.
-          Empty fields are never filled.
-        </p>
-      </header>
-
-      <div className="tabs" role="tablist">
-        {GROUPS.map((g) => (
-          <button key={g.id} role="tab" aria-selected={group === g.id} onClick={() => setGroup(g.id)}>
-            {g.title}
+    <main className="options">
+      <nav className="tabs" aria-label="Sections">
+        {VIEWS.map((v) => (
+          <button key={v.id} aria-current={view === v.id ? 'page' : undefined} aria-selected={view === v.id} onClick={() => setView(v.id)}>
+            {v.title}
           </button>
         ))}
-      </div>
-
-      <div className="grid">
-        {keys.map((d) => {
-          const long = d.type === 'longtext';
-          return (
-            <label key={d.key} className={long ? 'wide' : undefined}>
-              <span>{d.label}</span>
-              {long ? (
-                <textarea rows={3} value={values[d.key] ?? ''} onChange={(e) => set(d.key, e.target.value)} />
-              ) : (
-                <input
-                  type={d.type === 'email' ? 'email' : d.type === 'tel' ? 'tel' : d.type === 'url' ? 'url' : 'text'}
-                  value={values[d.key] ?? ''}
-                  onChange={(e) => set(d.key, e.target.value)}
-                  autoComplete="off"
-                />
-              )}
-            </label>
-          );
-        })}
-      </div>
-
-      <div className="actions">
-        <button className="primary" onClick={save}>Save profile</button>
-        {saved && <span role="status" className="muted">Saved.</span>}
-      </div>
-    </div>
+      </nav>
+      {view === 'profiles' && <ProfilesTab data={data} update={update} />}
+      {view === 'submission' && <SubmissionTab data={data} update={update} />}
+      {view === 'ai' && <AiSettings />}
+      {view === 'rules' && <RulesTab data={data} update={update} />}
+      {view === 'data' && <DataTab data={data} reload={reload} />}
+    </main>
   );
 }

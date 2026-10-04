@@ -30,5 +30,5 @@ export interface Counts {
 }
 
 export type Response =
-  | { ok: true; rows: Row[]; counts: Counts; filled?: number; undone?: number }
-  | { ok: false; error: string };
+  | { ok: true; rows: Row[]; counts: Counts; filled?: number; undone?: number; submissionTitle?: string; authors?: number }
+  | { ok: false; error: string; locked?: boolean };

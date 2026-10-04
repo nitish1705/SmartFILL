@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Embedder } from '@smartfill/core';
 import { createNodeEmbedder, modelAvailable } from './embedder';
-import { evaluate, riskCoverage, loadFixtures, refOf, type Metrics } from './evaluate';
+import { correctionsNeeded, evaluate, learnFromCorrections, loadFixtures, riskCoverage, type Metrics } from './evaluate';
 
 const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
 
@@ -55,6 +55,12 @@ function summary(name: string, m: Metrics) {
   } else {
     console.log('(embedding model not found: run `npm run fetch-model` to include the embeddings ablation)');
   }
+
+  // Site learning: user corrections from visit 1 are applied on visit 2 (same forms).
+  const visit1 = await evaluate();
+  const visit2 = await evaluate({ learned: learnFromCorrections(visit1) });
+  table.push(summary('rules, 2nd visit (site learning)', visit2));
+  console.log(`corrections needed: visit 1 = ${correctionsNeeded(visit1)}, visit 2 = ${correctionsNeeded(visit2)} (of ${visit1.matchable} matchable fields)`);
 
   console.table(table);
   const interesting = best.rows.filter((r) => r.decision !== 'auto' && (r.matchable || r.got) || !r.ok);

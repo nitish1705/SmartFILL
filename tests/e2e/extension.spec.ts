@@ -1,4 +1,5 @@
 import { chromium, expect, test, type BrowserContext, type Page, type Worker } from '@playwright/test';
+import { build } from 'esbuild';
 import { createServer, type Server } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -18,6 +19,7 @@ const PROFILE = {
 };
 
 let server: Server;
+let rsBundle = '';
 let base: string;
 let context: BrowserContext;
 let sw: Worker;
@@ -25,7 +27,26 @@ let ext: Page; // an extension page used to send commands exactly like the popup
 let extId: string;
 
 test.beforeAll(async () => {
+  // a real react-select, bundled on the fly, to exercise the custom-dropdown adapter
+  const out = await build({ entryPoints: [join(__dirname, 'pages', 'rs.tsx')], bundle: true, write: false, format: 'iife', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"production"' } });
+  rsBundle = out.outputFiles[0]!.text;
   server = createServer((req, res) => {
+    if (req.url === '/__dynamic.html') {
+      res.setHeader('content-type', 'text/html');
+      return void res.end(`<title>Dynamic</title><form id="f"><div id="authors"><fieldset><legend>Author</legend><label>First name <input name="fn1"></label><label>Email <input type="email" name="em1"></label></fieldset></div><button type="button" id="add" onclick="const d=document.createElement('fieldset');d.innerHTML='<legend>Author</legend><label>First name <input name=fn2></label><label>Email <input type=email name=em2></label>';document.getElementById('authors').append(d)">Add author</button></form>`);
+    }
+    if (req.url === '/__rs.html') {
+      res.setHeader('content-type', 'text/html');
+      return void res.end('<title>react-select</title><div id="root"></div><script src="/__rs.js"></script>');
+    }
+    if (req.url === '/__rs.js') {
+      res.setHeader('content-type', 'text/javascript');
+      return void res.end(rsBundle);
+    }
+    if (req.url === '/__org.html') {
+      res.setHeader('content-type', 'text/html');
+      return void res.end('<title>Org</title><form><label for="o">Organization</label><input id="o" name="o"></form>');
+    }
     if (req.url === '/__odd.html') {
       res.setHeader('content-type', 'text/html');
       return void res.end('<title>Odd</title><h2>Details</h2><form><label for="x">Place you currently study at</label><input id="x" name="zq"></form>');
@@ -191,4 +212,111 @@ test('LLM fallback: receives only descriptions + candidate keys, answer lands in
     proxy.close();
     await sw.evaluate(() => chrome.storage.local.remove('settings'));
   }
+});
+
+const person = (id: string, first: string, email: string) => ({ id, name: first, updatedAt: 1, values: { 'personal.first_name': first, 'personal.email': email, 'academic.institution': `${first} University` } });
+const store = (over: object = {}) => ({
+  profiles: [person('me', 'Ada', 'ada@example.edu'), person('g', 'Grace', 'grace@navy.mil'), person('a', 'Alan', 'alan@bletchley.uk')],
+  activeProfileId: 'me', submissions: [], siteMappings: {}, ...over,
+});
+const submission = (order: string[], corr: string) => ({
+  id: 's1', title: 'Paper',
+  authors: order.map((profileId, i) => ({ profileId, order: i + 1, corresponding: profileId === corr })),
+});
+
+test('three-author submission: block i ← author i in order, only the corresponding box ticked', async () => {
+  await sw.evaluate((d) => chrome.storage.local.set({ data: d }), store({ submissions: [submission(['g', 'me', 'a'], 'me')], activeSubmissionId: 's1' }));
+  const { page, tabId } = await open('26-three-authors.html');
+  const res = (await send('smartfill:fill', tabId)) as any;
+  expect(res.ok).toBe(true);
+  await expect(page.locator('[name="authors[1][first]"]')).toHaveValue('Grace');
+  await expect(page.locator('[name="authors[2][first]"]')).toHaveValue('Ada');
+  await expect(page.locator('[name="authors[3][first]"]')).toHaveValue('Alan');
+  await expect(page.locator('[name="authors[1][email]"]')).toHaveValue('grace@navy.mil');
+  await expect(page.locator('[name="authors[3][aff]"]')).toHaveValue('Alan University');
+  const ticks = await page.locator('input[type=checkbox]').evaluateAll((els) => els.map((e) => (e as HTMLInputElement).checked));
+  expect(ticks).toEqual([false, true, false]); // Ada is author #2 and corresponding
+  await page.close();
+});
+
+test('without a submission only the first author block is filled', async () => {
+  await sw.evaluate((d) => chrome.storage.local.set({ data: d }), store());
+  const { page, tabId } = await open('26-three-authors.html');
+  await send('smartfill:fill', tabId);
+  await expect(page.locator('[name="authors[1][first]"]')).toHaveValue('Ada');
+  await expect(page.locator('[name="authors[2][first]"]')).toHaveValue('');
+  await page.close();
+});
+
+test('"Add author" injects a block: badge shows new fields and the next author fills it', async () => {
+  await sw.evaluate((d) => chrome.storage.local.set({ data: d }), store({ submissions: [submission(['me', 'g'], 'g')], activeSubmissionId: 's1' }));
+  const { page, tabId } = await open('__dynamic.html');
+  await send('smartfill:fill', tabId);
+  await expect(page.locator('[name=fn1]')).toHaveValue('Ada');
+  await page.click('#add');
+  await expect.poll(() => sw.evaluate((id) => chrome.action.getBadgeText({ tabId: id }), tabId)).toBe('+2');
+  await send('smartfill:fill', tabId);
+  await expect(page.locator('[name=fn2]')).toHaveValue('Grace');
+  await expect(page.locator('[name=em2]')).toHaveValue('grace@navy.mil');
+  await page.close();
+});
+
+test('learning: a correction is remembered for that site only, then auto-applies', async () => {
+  const me = { ...person('me', 'Ada', 'ada@example.edu'), values: { 'academic.institution': 'IISc', 'academic.department': 'CSA' } };
+  await sw.evaluate(async ([d, s]) => chrome.storage.local.set({ data: d, settings: s }), [
+    store({ profiles: [me], submissions: [], siteMappings: {} }),
+    { thresholds: { auto: 0.95, review: 0.8, ask: 0.5 }, llm: { enabled: false, provider: 'off' }, learning: { enabled: true }, locked: false },
+  ] as const);
+
+  const { page, tabId } = await open('__org.html');
+  const first = (await send('smartfill:scan', tabId)) as any;
+  const row0 = first.rows.find((r: any) => r.label === 'Organization');
+  expect(row0.decision).toBe('ask'); // ambiguous: institution vs organization
+
+  // the user says: here "Organization" means Department
+  await send('smartfill:review', tabId);
+  const overlay = page.locator('#smartfill-overlay');
+  await overlay.locator('select').first().selectOption('academic.department');
+  await overlay.getByRole('button', { name: /Fill selected/ }).click();
+  await expect(page.locator('#o')).toHaveValue('CSA');
+  await expect.poll(async () => Object.keys((await sw.evaluate(() => chrome.storage.local.get('data'))).data.siteMappings).length).toBe(1);
+  const mapping = Object.values((await sw.evaluate(() => chrome.storage.local.get('data'))).data.siteMappings)[0] as any;
+  expect(mapping).toMatchObject({ key: 'academic.department', source: 'user_correction' });
+  expect(JSON.stringify(mapping)).not.toContain('CSA'); // values are never stored in rules
+
+  // second visit: applied automatically from site memory
+  await page.reload();
+  const second = (await send('smartfill:scan', tabId)) as any;
+  expect(second.rows.find((r: any) => r.label === 'Organization')).toMatchObject({ decision: 'auto', layer: 'site', key: 'academic.department' });
+  await page.close();
+
+  // a different origin has no such rule
+  const other = await context.newPage();
+  await other.goto(base.replace('localhost', '127.0.0.1') + '/__org.html');
+  const otherTab = await sw.evaluate(async () => (await chrome.tabs.query({ url: 'http://127.0.0.1/*' }))[0]!.id!);
+  const third = (await send('smartfill:scan', otherTab)) as any;
+  expect(third.rows.find((r: any) => r.label === 'Organization').layer).not.toBe('site');
+  await other.close();
+});
+
+test('custom dropdown adapter works on a real react-select', async () => {
+  const me = { ...person('me', 'Ada', 'ada@example.edu'), values: { 'personal.country': 'India' } };
+  await sw.evaluate((d) => chrome.storage.local.set({ data: d }), store({ profiles: [me] }));
+  const { page, tabId } = await open('__rs.html');
+  await page.waitForSelector('#country');
+  const scan = (await send('smartfill:scan', tabId)) as any;
+  const row = scan.rows.find((r: any) => r.label === 'Country');
+  expect(row, JSON.stringify(scan.rows)).toMatchObject({ key: 'personal.country', decision: 'review' }); // never auto: options unknown
+
+  // "Fill safe fields" must not touch it
+  await send('smartfill:fill', tabId);
+  await expect(page.locator('[class*="singleValue"]')).toHaveCount(0);
+
+  // the user approves it in the review panel
+  await send('smartfill:review', tabId);
+  const overlay = page.locator('#smartfill-overlay');
+  await overlay.getByRole('button', { name: /Fill selected/ }).click();
+  await expect(overlay.locator('[role=status]')).toContainText('Filled 1');
+  await expect(page.locator('[class*="singleValue"]')).toHaveText('India');
+  await page.close();
 });

@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { evaluate, type Metrics } from './evaluate';
+import { correctionsNeeded, evaluate, learnFromCorrections, type Metrics } from './evaluate';
 
 describe('fixture evaluation (Phase 1–2 exit criteria)', () => {
   let m: Metrics;
@@ -34,5 +34,12 @@ describe('fixture evaluation (Phase 1–2 exit criteria)', () => {
 
   it('rules-only matching of a form takes under 300 ms', () => {
     expect(m.medianMs).toBeLessThan(300);
+  });
+
+  it('site learning cuts the corrections a user must make on a second visit, without false fills', async () => {
+    const second = await evaluate({ learned: learnFromCorrections(m) });
+    expect(correctionsNeeded(second)).toBeLessThan(correctionsNeeded(m) * 0.2);
+    expect(second.incorrect).toBe(0);
+    expect(second.unknownSafetyRate).toBe(1);
   });
 });

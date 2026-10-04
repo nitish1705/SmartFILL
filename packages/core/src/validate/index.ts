@@ -24,7 +24,26 @@ export function validateFill(def: ProfileKeyDef, value: string | undefined, f: F
   if (f.hidden) return { verdict: 'skip', reason: 'field is hidden' };
   if (f.hasValue) return { verdict: 'skip', reason: 'field already has a value' };
 
+  // Boolean keys only make sense for checkboxes/radios, and vice versa.
+  if (def.type === 'boolean' && f.controlType !== 'checkbox') {
+    return { verdict: 'skip', reason: 'field is not a checkbox' };
+  }
+
   switch (f.controlType) {
+    case 'checkbox':
+      if (def.type !== 'boolean') return { verdict: 'skip', reason: 'checkbox cannot hold this value' };
+      // SmartFill only ever ticks a box; it never unticks one the page or the user set.
+      if (v !== 'true') return { verdict: 'skip', reason: 'nothing to tick' };
+      return { verdict: 'ok', fillValue: 'true' };
+    case 'radio-group': {
+      const idx = matchOption(v, f.options ?? []);
+      if (idx < 0) return { verdict: 'review', reason: 'no matching radio option' };
+      return { verdict: 'ok', fillValue: f.options![idx]!.value };
+    }
+    case 'custom':
+      if (def.type === 'date') return { verdict: 'skip', reason: 'unsupported custom control' };
+      // Options are unknown until the widget opens, so a human always confirms.
+      return { verdict: 'review', reason: 'custom dropdown: options are checked when filling', fillValue: v };
     case 'textarea':
     case 'contenteditable':
       break;

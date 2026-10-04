@@ -1,9 +1,9 @@
 import { matchFields, matchFieldsAsync, type MatchOptions, type MatchResult, type MatchServices } from '@smartfill/core';
 import { detectFields, type DetectedField } from './detector';
-import { fillField, type FillRecord } from './filler';
+import { fillDetected, type FillRecord } from './filler';
 
-export { detectFields, type DetectedField } from './detector';
-export { fillField, undoFill, type FillRecord, type HighlightKind } from './filler';
+export { detectFields, watchForNewFields, type DetectedField } from './detector';
+export { fillField, fillDetected, undoFill, type FillRecord, type HighlightKind } from './filler';
 
 export interface Analysis {
   fields: DetectedField[];
@@ -27,11 +27,11 @@ export async function analyzeDocumentAsync(
 }
 
 /** Fill every field whose decision is in `decisions` (default: only `auto`). */
-export function applyResults(
+export async function applyResults(
   analysis: Analysis,
   decisions: ReadonlySet<MatchResult['decision']> = new Set(['auto']),
   only?: ReadonlySet<string>,
-): FillRecord[] {
+): Promise<FillRecord[]> {
   const byId = new Map(analysis.fields.map((f) => [f.fieldId, f]));
   const records: FillRecord[] = [];
   for (const r of analysis.results) {
@@ -39,7 +39,8 @@ export function applyResults(
     if (only && !only.has(r.fieldId)) continue;
     const f = byId.get(r.fieldId);
     if (!f?.element.isConnected) continue;
-    records.push(fillField(f.element, r.value, r.decision === 'auto' ? 'auto' : 'review'));
+    const rec = await fillDetected(f, r.value, r.decision === 'auto' ? 'auto' : 'review');
+    if (rec) records.push(rec);
   }
   return records;
 }

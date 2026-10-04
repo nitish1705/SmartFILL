@@ -14,18 +14,27 @@ export interface FillItem {
 
 export interface OverlayDeps {
   analysis: Analysis;
-  values: ProfileValues;
+  /** Profile values that apply to each field, parallel to `analysis.fields` (author blocks differ). */
+  fieldValues: ProfileValues[];
   onFill(items: FillItem[]): Promise<number>;
   onUndo(): Promise<number>;
   /** User chose a key (or IGNORE) different from the suggestion. */
   onCorrection?(field: DetectedField, key: string): void;
   /** User kept a suggestion that was not certain. */
   onConfirm?(field: DetectedField, key: string): void;
+  onClose?(): void;
+}
+
+export interface OverlayHandle {
+  close(): void;
+  /** Fields appeared or changed (e.g. "Add author"): merge them in, keeping the user's choices. */
+  update(analysis: Analysis, fieldValues: ProfileValues[]): void;
 }
 
 interface RowState {
   field: DetectedField;
   result: MatchResult;
+  values: ProfileValues;
   key: string;
   include: boolean;
   value?: string;
@@ -39,14 +48,14 @@ const CSS = `
 .panel { position: fixed; top: 12px; right: 12px; width: 400px; max-height: calc(100vh - 24px); display: flex; flex-direction: column;
   background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 30px rgba(0,0,0,.25);
   font: 13px/1.4 system-ui, sans-serif; z-index: 2147483647; }
-:host { --bg:#fff; --fg:#1f2328; --muted:#656d76; --line:#d8dee4; --accent:#2563eb; --ok:#16a34a; --warn:#b45309; --chip:#f3f4f6; }
-@media (prefers-color-scheme: dark) { :host { --bg:#14171a; --fg:#e6edf3; --muted:#9198a1; --line:#30363d; --accent:#6ea8fe; --warn:#f0a35a; --chip:#21262d; } }
+:host { --bg:#fff; --fg:#1f2328; --muted:#59636e; --line:#d0d7de; --accent:#0b5bd3; --ok:#116329; --warn:#8a4b08; --chip:#eef0f2; }
+@media (prefers-color-scheme: dark) { :host { --bg:#14171a; --fg:#e6edf3; --muted:#9ba4ae; --line:#30363d; --accent:#6ea8fe; --ok:#56d364; --warn:#f0a35a; --chip:#21262d; } }
 header { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid var(--line); }
 h2 { font-size:14px; margin:0; }
 .list { overflow:auto; padding:6px 0; }
 .row { display:grid; grid-template-columns:20px 1fr; gap:8px; padding:8px 12px; border-bottom:1px solid var(--line); }
 .row:last-child { border-bottom:0; }
-.row.done { opacity:.55; }
+.row.done { opacity:.6; }
 .label { font-weight:600; overflow-wrap:anywhere; }
 .badge { font-size:11px; padding:1px 6px; border-radius:999px; background:var(--chip); margin-left:6px; font-weight:400; }
 .badge.auto { color:var(--ok); } .badge.review, .badge.ask { color:var(--warn); }
@@ -79,25 +88,33 @@ function h<K extends keyof HTMLElementTagNameMap>(
   return el;
 }
 
-let current: { close(): void } | null = null;
+let current: OverlayHandle | null = null;
 
-export function openOverlay(deps: OverlayDeps): { close(): void } {
-  current?.close();
-  const { analysis, values } = deps;
-
-  const rows: RowState[] = analysis.fields.flatMap((field, i) => {
-    const result = analysis.results[i]!;
+function buildRows(a: Analysis, fieldValues: ProfileValues[], old: Map<HTMLElement, RowState>): RowState[] {
+  return a.fields.flatMap((field, i) => {
+    const result = a.results[i]!;
+    const kept = old.get(field.element);
+    if (kept) return [{ ...kept, field, result: kept.done ? kept.result : result, values: fieldValues[i] ?? {} }];
     if (!['auto', 'review', 'ask'].includes(result.decision) || !result.key) return [];
     return [{
-      field, result, key: result.key,
+      field, result, values: fieldValues[i] ?? {}, key: result.key,
       include: result.decision !== 'ask' && result.value !== undefined,
       value: result.value, preview: result.preview, note: result.reason, done: false,
     }];
   });
-  const notInProfile = analysis.results
-    .filter((r) => r.decision === 'skip' && r.key && r.reason === 'no value in profile')
-    .map((r) => getKeyDef(r.key!)?.label ?? r.key!);
-  const protectedCount = analysis.results.filter((r) => r.decision === 'blocked').length;
+}
+
+export function openOverlay(deps: OverlayDeps): OverlayHandle {
+  current?.close();
+
+  let analysis = deps.analysis;
+  let rows = buildRows(analysis, deps.fieldValues, new Map());
+  const stats = () => ({
+    notInProfile: analysis.results
+      .filter((r) => r.decision === 'skip' && r.key && r.reason === 'no value in profile')
+      .map((r) => getKeyDef(r.key!)?.label ?? r.key!),
+    protectedCount: analysis.results.filter((r) => r.decision === 'blocked').length,
+  });
 
   const host = h('div', { id: 'smartfill-overlay' });
   const root = host.attachShadow({ mode: __E2E__ ? 'open' : 'closed' });
@@ -134,7 +151,7 @@ export function openOverlay(deps: OverlayDeps): { close(): void } {
     if (g1.children.length) sel.appendChild(g1);
     const g2 = h('optgroup', { label: 'Your profile' });
     for (const d of REGISTRY) {
-      if (!d.sensitive && values[d.key] && !suggested.has(d.key)) add(g2, d.key, d.label);
+      if (!d.sensitive && row.values[d.key] && !suggested.has(d.key)) add(g2, d.key, d.label);
     }
     if (g2.children.length) sel.appendChild(g2);
     add(sel, IGNORE, 'Never fill this field on this site');
@@ -145,15 +162,15 @@ export function openOverlay(deps: OverlayDeps): { close(): void } {
     list.replaceChildren();
     if (rows.length === 0) list.append(h('div', { class: 'muted' }, 'Nothing here can be filled from your profile.'));
     for (const row of rows) {
-      const cb = h('input', { type: 'checkbox', 'aria-label': `Include ${row.field.context.label ?? 'field'}` }) as HTMLInputElement;
+      const name = row.field.context.label ?? row.field.context.ariaLabel ?? row.field.context.placeholder ?? row.field.context.name ?? 'Field';
+      const author = row.field.context.authorIndex !== undefined ? ` (author ${row.field.context.authorIndex})` : '';
+      const cb = h('input', { type: 'checkbox', 'aria-label': `Include ${name}` }) as HTMLInputElement;
       cb.checked = row.include && !row.done;
       cb.disabled = row.value === undefined || row.done;
       cb.addEventListener('change', () => {
         row.include = cb.checked;
         refreshCount();
       });
-      const valueEl = h('div', { class: 'value' }, row.preview ?? '');
-      const noteEl = h('div', { class: 'note' }, row.done ? 'Filled' : row.note);
       const sel = keyOptions(row);
       sel.disabled = row.done;
       sel.addEventListener('change', () => {
@@ -163,7 +180,7 @@ export function openOverlay(deps: OverlayDeps): { close(): void } {
           Object.assign(row, { include: false, value: undefined, preview: undefined, note: key === IGNORE ? 'will be remembered for this site' : 'left blank' });
           if (key === IGNORE) deps.onCorrection?.(row.field, IGNORE);
         } else {
-          const check = checkFill(row.field, key, values);
+          const check = checkFill(row.field, key, row.values);
           Object.assign(row, {
             include: check.ok, value: check.value, preview: check.preview,
             note: check.ok ? check.reason ?? 'chosen by you' : check.reason ?? 'cannot fill this field with that value',
@@ -175,13 +192,16 @@ export function openOverlay(deps: OverlayDeps): { close(): void } {
       const el = h('div', { class: `row${row.done ? ' done' : ''}` },
         cb,
         h('div', {},
-          h('div', { class: 'label' }, row.field.context.label ?? row.field.context.ariaLabel ?? row.field.context.placeholder ?? row.field.context.name ?? 'Field',
+          h('div', { class: 'label' }, name + author,
             h('span', { class: `badge ${row.result.decision}` }, row.result.decision === 'auto' ? 'safe' : row.result.decision === 'review' ? 'review' : 'unsure')),
-          sel, valueEl, noteEl),
+          sel,
+          h('div', { class: 'value' }, row.preview ?? ''),
+          h('div', { class: 'note' }, row.done ? 'Filled' : row.note)),
       );
       el.addEventListener('mouseenter', () => flash(row.field.element));
       list.append(el);
     }
+    const { notInProfile, protectedCount } = stats();
     const extra: string[] = [];
     if (notInProfile.length) extra.push(`Not in your profile: ${[...new Set(notInProfile)].join(', ')}.`);
     if (protectedCount) extra.push(`${protectedCount} protected field${protectedCount === 1 ? '' : 's'} (passwords, cards, IDs) left alone.`);
@@ -192,7 +212,8 @@ export function openOverlay(deps: OverlayDeps): { close(): void } {
   const close = () => {
     host.remove();
     document.removeEventListener('keydown', onKey, true);
-    if (current?.close === close) current = null;
+    if (current === handle) current = null;
+    deps.onClose?.();
   };
   const onKey = (e: KeyboardEvent) => {
     if (e.key === 'Escape') close();
@@ -209,7 +230,7 @@ export function openOverlay(deps: OverlayDeps): { close(): void } {
       r.done = true;
       if (r.result.decision !== 'auto' && r.key === r.result.key) deps.onConfirm?.(r.field, r.key);
     }
-    status.textContent = `Filled ${n} field${n === 1 ? '' : 's'}.`;
+    status.textContent = `Filled ${n} field${n === 1 ? '' : 's'}${n < todo.length ? ` (${todo.length - n} could not be filled)` : ''}.`;
     render();
   });
   undoBtn.addEventListener('click', async () => {
@@ -220,6 +241,17 @@ export function openOverlay(deps: OverlayDeps): { close(): void } {
   });
   closeBtn.addEventListener('click', close);
   document.addEventListener('keydown', onKey, true);
+
+  const handle: OverlayHandle = {
+    close,
+    update(next, fieldValues) {
+      const before = rows.length;
+      analysis = next;
+      rows = buildRows(next, fieldValues, new Map(rows.map((r) => [r.field.element, r])));
+      status.textContent = rows.length > before ? `${rows.length - before} new field${rows.length - before === 1 ? '' : 's'} found.` : status.textContent;
+      render();
+    },
+  };
 
   root.append(
     h('style', {}, CSS),
@@ -232,6 +264,6 @@ export function openOverlay(deps: OverlayDeps): { close(): void } {
   render();
   (fillBtn as HTMLButtonElement).focus();
 
-  current = { close };
-  return current;
+  current = handle;
+  return handle;
 }

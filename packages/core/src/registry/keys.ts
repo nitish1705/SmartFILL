@@ -180,6 +180,11 @@ export const REGISTRY: ProfileKeyDef[] = [
     synonyms: ['ieee member id', 'ieee membership number', 'ieee member number', 'ieee number', 'ieee membership id'],
   },
   {
+    key: 'submission.corresponding_author', label: 'Corresponding author', type: 'boolean', perAuthor: true,
+    description: 'checkbox marking the author who handles correspondence for a paper',
+    synonyms: ['corresponding author', 'corresponding', 'is corresponding author', 'contact author', 'main contact author', 'primary contact author'],
+  },
+  {
     key: 'research.default_author_role', label: 'Default author role', type: 'text',
     description: 'role of the author in a paper',
     synonyms: ['author role', 'author type', 'role in paper', 'contribution role'],

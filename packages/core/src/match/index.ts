@@ -15,9 +15,20 @@ import { sensitiveReason } from '../validate/sensitive';
 import type { Decision, FieldInfo, MatchLayer, MatchResult, ProfileValues } from '../types';
 import { prepareField, rankCandidates, sectionConflict, type Candidate } from './rules';
 
+export interface AuthorSource {
+  values: ProfileValues;
+  corresponding: boolean;
+}
+
 export interface MatchOptions {
+  /** Values of the person using SmartFill (the submitter). */
   values: ProfileValues;
   thresholds?: Thresholds;
+  /**
+   * Authors of the active submission, in author order. Author block *k* on a page is filled from
+   * `authors[k]`; blocks without an author are left alone. Without this, only the first block is filled.
+   */
+  authors?: AuthorSource[];
 }
 
 /** Optional signals from layers beyond the deterministic rules. */
@@ -53,8 +64,8 @@ const DISAGREE_PENALTY = 0.1;
 interface FormFlags {
   /** The form has dedicated first/last name fields, so a bare "Name" is not the full name. */
   hasSplitName: boolean;
-  /** Author-block index that belongs to the user (lowest one on the page). */
-  primaryAuthorIndex?: number;
+  /** Distinct author-block indexes on the page, ascending. */
+  blocks: number[];
 }
 
 function formFlags(fields: FieldInfo[]): FormFlags {
@@ -67,8 +78,23 @@ function formFlags(fields: FieldInfo[]): FormFlags {
       hasSplitName = true;
     }
   }
-  const sorted = [...indices].sort((a, b) => a - b);
-  return { hasSplitName, primaryAuthorIndex: indices.size > 1 ? sorted[0] : undefined };
+  return { hasSplitName, blocks: [...indices].sort((a, b) => a - b) };
+}
+
+/** Which profile values apply to this field? Author blocks map block i → submission author i. */
+function valuesFor(f: FieldInfo, opts: Required<MatchOptions>, flags: FormFlags): { values: ProfileValues } | { skip: string } {
+  const idx = f.context.authorIndex;
+  if (idx === undefined) return { values: opts.values };
+  const k = flags.blocks.indexOf(idx);
+  if (opts.authors.length > 0) {
+    const author = opts.authors[k];
+    if (!author) return { skip: `no author #${k + 1} in your submission` };
+    return { values: { ...author.values, 'submission.corresponding_author': author.corresponding ? 'true' : 'false' } };
+  }
+  if (flags.blocks.length > 1 && k > 0) {
+    return { skip: 'belongs to another author (add a submission with several authors to fill it)' };
+  }
+  return { values: opts.values };
 }
 
 function result(f: FieldInfo, partial: Partial<MatchResult> & Pick<MatchResult, 'decision' | 'reason'>): MatchResult {
@@ -109,19 +135,15 @@ function matchOne(
   flags: FormFlags,
   extra: ExtraSignals = {},
 ): Matched {
-  const { values, thresholds } = opts;
+  const { thresholds } = opts;
   const done = (r: MatchResult): Matched => ({ result: r, needsMore: false });
 
   const blockedReason = sensitiveReason(f);
   if (blockedReason) return done(result(f, { decision: 'blocked', reason: blockedReason }));
 
-  if (
-    flags.primaryAuthorIndex !== undefined &&
-    f.context.authorIndex !== undefined &&
-    f.context.authorIndex !== flags.primaryAuthorIndex
-  ) {
-    return done(result(f, { decision: 'skip', reason: 'belongs to another author (multi-author fill arrives in V2)' }));
-  }
+  const scope = valuesFor(f, opts, flags);
+  if ('skip' in scope) return done(result(f, { decision: 'skip', reason: scope.skip }));
+  const values = scope.values;
 
   if (extra.site?.key === 'IGNORE') {
     return done(result(f, { decision: 'skip', layer: 'site', reason: 'you told SmartFill to ignore this field here' }));
@@ -229,7 +251,7 @@ function matchOne(
 }
 
 function normalizeOptions(options: MatchOptions): Required<MatchOptions> {
-  return { values: options.values, thresholds: options.thresholds ?? DEFAULT_SETTINGS.thresholds };
+  return { values: options.values, thresholds: options.thresholds ?? DEFAULT_SETTINGS.thresholds, authors: options.authors ?? [] };
 }
 
 /** Rules-only matching (synchronous). */
@@ -271,23 +293,30 @@ export async function matchFieldsAsync(
       }
     }
   }
+  const fieldValues = (i: number): ProfileValues => {
+    const sc = valuesFor(fields[i]!, opts, flags);
+    return 'values' in sc ? sc.values : {};
+  };
   if (services.llm) {
     // Only fields still unsettled (skipped or merely "unsure") whose candidate keys have profile values.
     const asks = matched
       .map((m, i) => ({ i, m }))
       .filter(({ m }) => m.needsMore && (m.result.decision === 'skip' || m.result.decision === 'ask'))
-      .map(({ i, m }) => ({ i, candidates: llmCandidateKeys(m.result.candidates, opts.values) }))
+      .map(({ i, m }) => ({ i, candidates: llmCandidateKeys(m.result.candidates, fieldValues(i)) }))
       .filter((a) => a.candidates.length > 0);
     for (let at = 0; at < asks.length; at += LLM_BATCH_SIZE) {
       const batch = asks.slice(at, at + LLM_BATCH_SIZE);
       const request = buildLlmRequest(batch.map((a) => ({ field: fields[a.i]!, candidates: a.candidates })));
+      let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         services.onLlmRequest?.(request);
         const raw = await Promise.race([
           services.llm(request),
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('LLM timeout')), LLM_TIMEOUT_MS)),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error('LLM timeout')), LLM_TIMEOUT_MS);
+          }),
         ]);
-        const picks = parseLlmResponse(raw, request, opts.values);
+        const picks = parseLlmResponse(raw, request, { ...opts.values, ...Object.assign({}, ...opts.authors.map((a) => a.values)) });
         for (const a of batch) {
           const pick = picks.get(fields[a.i]!.fieldId);
           if (!pick?.key) continue;
@@ -296,6 +325,8 @@ export async function matchFieldsAsync(
         }
       } catch {
         /* timeout / network / bad response → keep the embedding+rules result silently */
+      } finally {
+        clearTimeout(timer);
       }
     }
   }
@@ -332,4 +363,14 @@ export function escalationCandidates(fields: FieldInfo[], options: MatchOptions)
   const opts = normalizeOptions(options);
   const flags = formFlags(fields);
   return fields.filter((f) => matchOne(f, opts, flags).needsMore);
+}
+
+/** Profile values that apply to each field (author blocks resolve to their own author). Skipped fields get {}. */
+export function resolveFieldValues(fields: FieldInfo[], options: MatchOptions): ProfileValues[] {
+  const opts = normalizeOptions(options);
+  const flags = formFlags(fields);
+  return fields.map((f) => {
+    const scope = valuesFor(f, opts, flags);
+    return 'values' in scope ? scope.values : {};
+  });
 }

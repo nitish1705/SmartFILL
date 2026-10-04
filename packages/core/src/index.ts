@@ -2,11 +2,13 @@ export * from './types';
 export { REGISTRY, getKeyDef } from './registry/keys';
 export { normalizeText, normalizeIdentifier, splitIdentifier, tokenize } from './normalize';
 export { matchFields } from './match';
-export type { MatchOptions } from './match';
+export type { MatchOptions, AuthorSource } from './match';
+export { fieldSignature } from './site';
+export * from './crypto/vault';
 export { rankCandidates, prepareField } from './match/rules';
 export { validateFill, matchOption, sensitiveReason } from './validate';
 export { decideBand, moreCautious } from './decide';
-export { matchFieldsAsync, checkFill, escalationCandidates } from './match';
+export { matchFieldsAsync, checkFill, escalationCandidates, resolveFieldValues } from './match';
 export type { MatchServices, ExtraSignals, FillCheck } from './match';
 export {
   createEmbeddingIndex, embeddingAccepted, fieldText, keyAnchors, calibrate, cosine,

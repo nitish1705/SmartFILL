@@ -161,3 +161,17 @@ export function riskCoverage(rows: Row[], steps = 20): { threshold: number; cove
   }
   return out;
 }
+
+/** What a user still has to do by hand: matchable fields not auto-filled correctly, plus any wrong auto-fill. */
+export function correctionsNeeded(m: Metrics): number {
+  return m.rows.filter((r) => (r.matchable && !(r.decision === 'auto' && r.got === r.expected)) || (r.decision === 'auto' && !r.ok)).length;
+}
+
+/** Second-visit simulation: the user corrects every field the first visit got wrong or left open; those become site rules. */
+export function learnFromCorrections(m: Metrics): Map<string, string> {
+  const learned = new Map<string, string>();
+  for (const r of m.rows) {
+    if (r.matchable && r.expected && !(r.decision === 'auto' && r.got === r.expected)) learned.set(`${r.form}|${r.ref}`, r.expected);
+  }
+  return learned;
+}

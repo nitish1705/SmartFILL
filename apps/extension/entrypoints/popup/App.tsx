@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { browser } from 'wxt/browser';
+import { unlock } from '@/lib/store';
 import type { Command, Counts, Response, Row } from '@/lib/messages';
 
 const ICON: Record<Row['decision'], string> = { auto: '✓', review: '✓', ask: '⚠', skip: '○', blocked: '🔒' };
@@ -8,7 +9,8 @@ const ORDER: Row['decision'][] = ['auto', 'review', 'ask', 'blocked', 'skip'];
 type State =
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'ready'; rows: Row[]; counts: Counts; note?: string };
+  | { status: 'locked' }
+  | { status: 'ready'; rows: Row[]; counts: Counts; note?: string; submission?: string; authors?: number };
 
 export function App() {
   const [state, setState] = useState<State>({ status: 'loading' });
@@ -21,11 +23,14 @@ export function App() {
       if (tab?.id === undefined) throw new Error('No active tab.');
       const res = (await browser.runtime.sendMessage({ type, tabId: tab.id })) as Response | undefined;
       if (!res) throw new Error('No response from the page.');
-      if (!res.ok) throw new Error(res.error);
+      if (!res.ok) {
+        if (res.locked) return setState({ status: 'locked' });
+        throw new Error(res.error);
+      }
       const note =
         res.filled !== undefined ? `Filled ${res.filled} field${res.filled === 1 ? '' : 's'}.` :
         res.undone !== undefined ? `Restored ${res.undone} field${res.undone === 1 ? '' : 's'}.` : undefined;
-      setState({ status: 'ready', rows: res.rows, counts: res.counts, note });
+      setState({ status: 'ready', rows: res.rows, counts: res.counts, note, submission: res.submissionTitle, authors: res.authors });
     } catch (e) {
       setState({ status: 'error', message: e instanceof Error ? e.message : String(e) });
     } finally {
@@ -45,12 +50,16 @@ export function App() {
       <h1>SmartFill</h1>
 
       {state.status === 'loading' && <p className="muted">Scanning page…</p>}
+      {state.status === 'locked' && <UnlockForm onDone={() => run('smartfill:scan')} />}
       {state.status === 'error' && (
         <p className="error">Can’t read this page: {state.message}</p>
       )}
 
       {ready && (
         <>
+          {ready.submission && (
+            <p className="muted" style={{ margin: 0 }}>Submission: {ready.submission} · {ready.authors} author{ready.authors === 1 ? '' : 's'}</p>
+          )}
           <div className="pills">
             <span className="pill">{ready.counts.detected} detected</span>
             <span className="pill" style={{ color: 'var(--ok)' }}>{ready.counts.safe} safe to fill</span>
@@ -92,5 +101,28 @@ export function App() {
       </div>
       <p className="muted" style={{ margin: 0 }}>SmartFill never submits forms and never touches passwords or card fields.</p>
     </main>
+  );
+}
+
+function UnlockForm({ onDone }: { onDone: () => void }) {
+  const [pass, setPass] = useState('');
+  const [err, setErr] = useState('');
+  return (
+    <form
+      style={{ display: 'grid', gap: 8 }}
+      onSubmit={async (e) => {
+        e.preventDefault();
+        try {
+          await unlock(pass);
+          onDone();
+        } catch {
+          setErr('Wrong passphrase.');
+        }
+      }}
+    >
+      <label>SmartFill is locked. Passphrase<input type="password" autoFocus value={pass} onChange={(e) => setPass(e.target.value)} /></label>
+      <button className="primary" type="submit">Unlock</button>
+      {err && <p role="alert" className="error">{err}</p>}
+    </form>
   );
 }
