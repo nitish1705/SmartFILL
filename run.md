@@ -27,8 +27,8 @@ For the end-to-end tests also install a browser once: `npx playwright install ch
 
 ```bash
 npm run typecheck   # tsc for packages/eval, then the extension
-npm test            # 73 Vitest tests: core, DOM (jsdom), eval gates, study analysis
-npm run e2e         # builds an E2E variant and runs 14 Playwright tests in real Chromium
+npm test            # 77 Vitest tests: core, DOM (jsdom), eval gates, study analysis, CV extraction
+npm run e2e         # builds an E2E variant and runs 15 Playwright tests in real Chromium
 npm run eval        # development-set report (+ ablations, risk-coverage CSV)
 npx tsx eval/run.ts --test   # held-out set (do not tune on it)
 npm run calibrate   # refit the embedding calibration (needs fetch-model)
@@ -56,6 +56,9 @@ On first install the welcome flow (3 screens) opens in a tab.
 
 ### Profiles
 Options → **Profiles**: fill the tabs (Personal / Academic / Professional / Research) and **Save profile**. Only verified information; empty fields are never filled. **＋ Add co-author** creates more profiles; the one marked *me* is used for fields outside author blocks. Sensitive keys (e.g. student ID) are not offered because they are never filled.
+
+### Import from a CV (V3)
+Profiles → **Import details from a CV (PDF or text)**. The file is read in your browser (pdf.js; never uploaded) and rule-based extraction proposes values with the line each came from. Distinctive patterns (email, ORCID, Scholar link) start ticked; guesses (name, institution, degree, designation, interests) start unticked. Tick what you want, edit values, **Add ticked values to this profile**, then **Save profile** — nothing is stored before that. There is no LLM involved, and nothing is generated: only text that appears in the document is proposed.
 
 ### Filling a form
 1. Open the form, click **SmartFill** (or **Alt+Shift+F**). The page script is injected only now (`activeTab`).
@@ -116,4 +119,5 @@ See the tree in [`README.md`](README.md) and the design in [`docs/architecture.m
 | Changes not visible | Rebuild and reload the extension on `chrome://extensions`. |
 
 ## 9. Not done
-User study with participants, the 15-live-site manual run, real-LLM measurements (incl. the keys-only vs full-context ablation), Web Store submission, and Phase 6 items other than a Firefox build script: CV/PDF import, RAG over documents, encrypted cloud sync, on-device WebLLM, opt-in analytics.
+* User study with participants, the 15-live-site manual run, real-LLM measurements (incl. the keys-only vs full-context ablation), Web Store submission.
+* Phase 6 items **not** built: encrypted cloud sync and opt-in analytics (both need a backend and accounts — and analytics conflicts with the no-telemetry promise), RAG over uploaded documents (would generate content, which is a stated non-goal), on-device WebLLM (Ollama already provides a local model). The Chrome build should also load in Edge (Chromium; not tested); the Firefox build compiles but is untested.

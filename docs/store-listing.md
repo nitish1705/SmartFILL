@@ -24,6 +24,7 @@ SmartFill remembers your details once and fills them into forms — including fo
 - Your profile stays on your device. No account, no servers, no analytics.
 - Matching runs locally with a small bundled model.
 - Optional passphrase lock (AES-256-GCM), encrypted export, delete-everything button.
+- Import details from a CV (PDF/text) in your browser — you approve every value.
 - Optional AI assist is off by default and never sees your details — only field labels and candidate field names.
 
 ## Category

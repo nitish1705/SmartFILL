@@ -1,5 +1,6 @@
 import { chromium, expect, test, type BrowserContext, type Page, type Worker } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { build } from 'esbuild';
 import { createServer, type Server } from 'node:http';
 import { readFileSync } from 'node:fs';
@@ -419,4 +420,41 @@ test('lock: data is encrypted at rest, locked pages get nothing, unlock restores
   await expect(page.getByText('All SmartFill data has been deleted.')).toBeVisible();
   expect(await sw.evaluate(async () => Object.keys(await chrome.storage.local.get(null)))).toEqual([]);
   await page.close();
+});
+
+test('CV import: a PDF is read in the browser, suggestions need approval, nothing unticked is saved', async () => {
+  await sw.evaluate(async (d) => { await chrome.storage.local.clear(); await chrome.storage.local.set({ onboarded: true, data: d }); }, store({ profiles: [{ id: 'me', name: 'Me', updatedAt: 1, values: {} }] }));
+
+  // build a real PDF
+  const pdf = await PDFDocument.create();
+  const page = pdf.addPage([595, 842]);
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const lines = ['Dr. Ada Lovelace', 'Research Scholar', 'Indian Institute of Science, Bengaluru', 'ada@example.edu | +91 98765 43210', 'ORCID: 0000-0002-1825-0097', 'Research Interests: machine learning, compilers'];
+  lines.forEach((l, i) => page.drawText(l, { x: 50, y: 780 - i * 22, size: 12, font }));
+  const buffer = Buffer.from(await pdf.save());
+
+  const opt = await options();
+  await opt.getByText('Import details from a CV (PDF or text)').click();
+  await opt.locator('input[type=file]').setInputFiles({ name: 'cv.pdf', mimeType: 'application/pdf', buffer });
+  await expect(opt.getByText(/Found \d+ possible detail/)).toBeVisible({ timeout: 20_000 });
+
+  // distinctive patterns are pre-ticked; heuristic guesses are not
+  await expect(opt.getByLabel('Use Email')).toBeChecked();
+  await expect(opt.getByLabel('Use ORCID iD')).toBeChecked();
+  await expect(opt.getByLabel('Use Institution')).not.toBeChecked();
+  await expect(opt.getByLabel('Value for Email')).toHaveValue('ada@example.edu');
+  await expectNoA11yViolations(opt);
+
+  await opt.getByLabel('Use Full name').check();
+  await opt.getByRole('button', { name: 'Add ticked values to this profile' }).click();
+  await expect(opt.getByText(/Review them and press/)).toBeVisible();
+  // nothing is stored until the user saves
+  expect(await sw.evaluate(async () => (await chrome.storage.local.get('data')).data.profiles[0].values)).toEqual({});
+  await opt.getByRole('button', { name: 'Save profile' }).click();
+  await expect.poll(() => sw.evaluate(async () => (await chrome.storage.local.get('data')).data.profiles[0].values)).toMatchObject({
+    'personal.email': 'ada@example.edu', 'personal.full_name': 'Ada Lovelace', 'research.orcid': '0000-0002-1825-0097',
+  });
+  const saved = await sw.evaluate(async () => (await chrome.storage.local.get('data')).data.profiles[0].values);
+  expect(saved['academic.institution']).toBeUndefined(); // unticked guess was not saved
+  await opt.close();
 });

@@ -78,14 +78,15 @@ Simulation: after visit 1 the user corrects every matchable field that was wrong
 | Layer | Tests |
 |---|---|
 | Core (matching, validation, normalizer, fusion, LLM protocol, authors, site signatures) | 45 |
+| CV extraction (patterns, heuristics, never-invent cases) | 4 |
 | Vault crypto (round trip, wrong passphrase, tamper, fresh salt/IV) | 3 |
 | DOM (detector, filler, radios, custom dropdowns, observer, safety) | 13 |
 | Eval gates (fixture ground truth, FAR = 0, USR = 100%, precision/recall floors, latency, site learning) | 8 |
 | Study analysis (SUS, paired stats) | 4 |
 
-(73 Vitest tests in total.)
+(77 Vitest tests in total.)
 | LLM proxy (pytest) | 8 |
-| Real-extension E2E (Playwright + Chromium) | 14 |
+| Real-extension E2E (Playwright + Chromium; incl. real react-select, axe WCAG 2.1 AA, lock, CV import from a real PDF) | 15 |
 
 Safety tests that must always pass: password/card/OTP/ID fields are never filled; missing values leave fields untouched; no `submit` event or button click during a fill; LLM answers outside the candidate list or quoting profile values are rejected; locked data never reaches a page.
 

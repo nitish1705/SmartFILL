@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { REGISTRY } from '@smartfill/core';
 import type { Profile } from '@smartfill/schemas';
 import { newId, type StoreData } from '@/lib/store';
+import { CvImport } from './CvImport';
 
 const GROUPS = [
   { id: 'personal', title: 'Personal' },
@@ -75,6 +76,17 @@ export function ProfilesTab({ data, update }: Props) {
           filled. Add profiles for co-authors to fill multi-author submission forms.
         </p>
       </header>
+
+      <details>
+        <summary>Import details from a CV (PDF or text)</summary>
+        <CvImport
+          current={draft.values}
+          onApply={(vals) => {
+            setSaved(false);
+            setDraft((cur) => ({ ...cur, values: { ...cur.values, ...vals } }));
+          }}
+        />
+      </details>
 
       <div className="tabs" role="group" aria-label="Profiles">
         {data.profiles.map((p) => (

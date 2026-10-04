@@ -20,3 +20,5 @@ export {
   buildLlmRequest, llmCandidateKeys, parseLlmResponse,
 } from './llm';
 export type { LlmRequest, LlmFieldRequest, LlmPick } from './llm';
+export { extractFromCv } from './import/cv';
+export type { CvSuggestion } from './import/cv';
