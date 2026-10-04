@@ -1,4 +1,4 @@
-import { matchFields, type MatchOptions, type MatchResult } from '@smartfill/core';
+import { matchFields, matchFieldsAsync, type MatchOptions, type MatchResult, type MatchServices } from '@smartfill/core';
 import { detectFields, type DetectedField } from './detector';
 import { fillField, type FillRecord } from './filler';
 
@@ -14,6 +14,16 @@ export interface Analysis {
 export function analyzeDocument(doc: Document, options: MatchOptions): Analysis {
   const fields = detectFields(doc);
   return { fields, results: matchFields(fields, options) };
+}
+
+/** Detect → match with the full cascade (site memory, rules, embeddings). */
+export async function analyzeDocumentAsync(
+  doc: Document,
+  options: MatchOptions,
+  services: MatchServices,
+): Promise<Analysis> {
+  const fields = detectFields(doc);
+  return { fields, results: await matchFieldsAsync(fields, options, services) };
 }
 
 /** Fill every field whose decision is in `decisions` (default: only `auto`). */

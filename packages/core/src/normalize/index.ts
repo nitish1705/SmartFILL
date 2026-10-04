@@ -17,7 +17,11 @@ const NOISE = new Set([
   'field', 'input', 'txt', 'tb', 'ctl', 'ctrl', 'control', 'frm', 'fld', 'edit', 'box', 'textbox', 'ddl', 'sel',
 ]);
 
-const FILLER = /\b(?:please enter|please|enter|your|name of|the|required|optional)\b/g;
+const FILLER =
+  /\b(?:(?:with|including|incl|include)\s+(?:country|area|dial|std)\s+code|please enter|please|enter|your|name of|the|required|optional)\b/g;
+
+/** Light plural stemming so "given names" matches "given name". */
+const stem = (t: string) => (t.length > 3 && t.endsWith('s') && !/(?:ss|us|is)$/.test(t) ? t.slice(0, -1) : t);
 
 /** `authorFirstName` / `author_first-name` → `author first name` (for name/id attributes only). */
 export function splitIdentifier(s: string): string {
@@ -27,7 +31,7 @@ export function splitIdentifier(s: string): string {
     .replace(/[_\-.$[\]]+/g, ' ');
 }
 
-export function normalizeText(input: string | undefined | null): string {
+export function normalizeText(input: string | undefined | null, dropDigits = false): string {
   if (!input) return '';
   let s = input.toLowerCase();
   s = s.replace(/[’']s\b/g, '');
@@ -41,13 +45,14 @@ export function normalizeText(input: string | undefined | null): string {
   s = s.replace(FILLER, ' ');
   return s
     .split(/\s+/)
-    .filter((t) => t && !NOISE.has(t) && !/^ctl\d+$/.test(t) && !/^\d+$/.test(t))
+    .filter((t) => t && !NOISE.has(t) && !/^ctl\d+$/.test(t) && !(dropDigits && /^\d+$/.test(t)))
+    .map(stem)
     .join(' ');
 }
 
 /** Normalizer for identifier-like attributes (name, id, autocomplete). */
 export function normalizeIdentifier(input: string | undefined | null): string {
-  return input ? normalizeText(splitIdentifier(input)) : '';
+  return input ? normalizeText(splitIdentifier(input), true) : '';
 }
 
 export function tokenize(normalized: string): string[] {

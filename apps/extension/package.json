@@ -10,6 +10,7 @@
     "typecheck": "wxt prepare && tsc --noEmit"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.3.0",
     "@smartfill/core": "*",
     "@smartfill/dom": "*",
     "@smartfill/schemas": "*",

@@ -17,21 +17,26 @@ interface PreparedKey {
   negatives: Set<string>;
 }
 
-/** Words that mean the field is about someone/something other than the user. */
-const CONTEXT_CONFLICTS = [
-  'billing', 'emergency', 'guardian', 'parent', 'reviewer', 'referee', 'reference', 'spouse',
-  'father', 'mother', 'friend', 'nominee', 'sponsor', 'payment', 'shipping', 'recipient',
+/** Words that always mean the field is about someone/something other than the user. */
+const STRONG_CONFLICTS = [
+  'billing', 'emergency', 'guardian', 'parent', 'spouse', 'father', 'mother', 'friend', 'nominee',
+  'payment', 'shipping', 'recipient',
 ];
+/** Ambiguous: "Reviewer 2" is someone else, "Reviewer Registration" is the user. */
+const WEAK_CONFLICTS = ['reviewer', 'referee', 'reference', 'sponsor', 'team', 'leader', 'colleague', 'manager', 'partner'];
+/** A heading with one of these describes the user's own page, so weak conflicts in it are ignored. */
+const SELF_HEADING = new Set(['registration', 'application', 'profile', 'sign', 'signup', 'join', 'account', 'membership', 'about', 'you', 'volunteer']);
+const CO_PERSON = /co (?:investigator|author|applicant|pi)/;
 
 let prepared: PreparedKey[] | null = null;
 function getPrepared(): PreparedKey[] {
   prepared ??= REGISTRY.map((def) => {
-    const texts = new Set([normalizeText(def.label), ...def.synonyms.map(normalizeText)]);
+    const texts = new Set([normalizeText(def.label), ...def.synonyms.map((x) => normalizeText(x))]);
     texts.delete('');
     return {
       def,
       synonyms: [...texts].map((text) => ({ text, tokens: tokenize(text) })),
-      negatives: new Set((def.negativeHints ?? []).map(normalizeText)),
+      negatives: new Set((def.negativeHints ?? []).map((x) => normalizeText(x))),
     };
   });
   return prepared;
@@ -136,8 +141,13 @@ function scoreKey(p: PreparedKey, f: FieldInfo, pf: PreparedField): Candidate | 
 }
 
 export function sectionConflict(pf: PreparedField): boolean {
-  const hay = new Set([...tokenize(pf.section), ...pf.allTokens]);
-  return CONTEXT_CONFLICTS.some((w) => hay.has(w));
+  const own = new Set([...pf.labels, pf.placeholder, pf.name, pf.id].flatMap(tokenize));
+  const heading = new Set(tokenize(pf.section));
+  if (STRONG_CONFLICTS.some((w) => own.has(w) || heading.has(w))) return true;
+  if (WEAK_CONFLICTS.some((w) => own.has(w))) return true;
+  const selfHeading = [...heading].some((t) => SELF_HEADING.has(t));
+  if (!selfHeading && WEAK_CONFLICTS.some((w) => heading.has(w))) return true;
+  return pf.labels.some((l) => CO_PERSON.test(l));
 }
 
 /** Rank registry keys for one field. Highest score first. */

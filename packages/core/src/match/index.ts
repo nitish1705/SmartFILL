@@ -1,19 +1,49 @@
 import { DEFAULT_SETTINGS, type Thresholds } from '@smartfill/schemas';
 import { decideBand, moreCautious } from '../decide';
+import {
+  EMBEDDING_CAP,
+  createEmbeddingIndex,
+  embeddingAccepted,
+  type Embedder,
+  type Calibration,
+  type EmbeddingCandidate,
+} from '../embedding';
 import { getKeyDef } from '../registry/keys';
 import { validateFill } from '../validate';
 import { sensitiveReason } from '../validate/sensitive';
-import type { Decision, FieldInfo, MatchResult, ProfileValues } from '../types';
-import { prepareField, rankCandidates } from './rules';
+import type { Decision, FieldInfo, MatchLayer, MatchResult, ProfileValues } from '../types';
+import { prepareField, rankCandidates, sectionConflict, type Candidate } from './rules';
 
 export interface MatchOptions {
   values: ProfileValues;
   thresholds?: Thresholds;
 }
 
+/** Optional signals from layers beyond the deterministic rules. */
+export interface ExtraSignals {
+  /** Learned per-site mapping (Layer 0). */
+  site?: { key: string | 'IGNORE' };
+  /** Calibrated embedding candidates (Layer 2). */
+  embedding?: EmbeddingCandidate[];
+  /** Constrained LLM choice (Layer 3). */
+  llm?: { key: string | null; confidence: number };
+}
+
+export interface MatchServices {
+  embed?: Embedder;
+  /** Alternative to `embed`: rank fields remotely (offscreen document keeps key vectors warm). */
+  rank?: (fields: FieldInfo[]) => Promise<EmbeddingCandidate[][]>;
+  /** Override the fitted Platt calibration (tests, experiments). */
+  calibration?: Calibration;
+  /** Learned site mapping lookup (Layer 0). */
+  site?: (f: FieldInfo) => string | 'IGNORE' | undefined;
+}
+
 const RULE_ACCEPT = 0.9;
 const RULE_MARGIN = 0.15;
 const AMBIGUOUS_CAP = 0.79;
+const LLM_CAP = 0.9;
+const DISAGREE_PENALTY = 0.1;
 
 interface FormFlags {
   /** The form has dedicated first/last name fields, so a bare "Name" is not the full name. */
@@ -40,23 +70,60 @@ function result(f: FieldInfo, partial: Partial<MatchResult> & Pick<MatchResult, 
   return { fieldId: f.fieldId, key: null, confidence: 0, layer: 'rule', candidates: [], ...partial };
 }
 
-/** Match a single field. `flags` carries form-level context. */
-function matchOne(f: FieldInfo, opts: Required<MatchOptions>, flags: FormFlags): MatchResult {
+interface Proposal {
+  layer: MatchLayer;
+  key: string;
+  score: number;
+}
+
+/** Confidence fusion (§7.7). */
+function fuse(picks: Proposal[]): { key: string; confidence: number; layer: MatchLayer; disagree: boolean } {
+  const sorted = [...picks].sort((a, b) => b.score - a.score);
+  const top = sorted[0]!;
+  const other = sorted.find((p) => p.key !== top.key);
+  if (other) {
+    return {
+      key: top.key,
+      layer: top.layer,
+      confidence: Math.min(Math.min(top.score, other.score) - DISAGREE_PENALTY, AMBIGUOUS_CAP),
+      disagree: true,
+    };
+  }
+  return { key: top.key, confidence: top.score, layer: top.layer, disagree: false };
+}
+
+export interface Matched {
+  result: MatchResult;
+  /** Rules were not conclusive; later layers may help. */
+  needsMore: boolean;
+}
+
+function matchOne(
+  f: FieldInfo,
+  opts: Required<MatchOptions>,
+  flags: FormFlags,
+  extra: ExtraSignals = {},
+): Matched {
   const { values, thresholds } = opts;
+  const done = (r: MatchResult): Matched => ({ result: r, needsMore: false });
 
   const blockedReason = sensitiveReason(f);
-  if (blockedReason) return result(f, { decision: 'blocked', reason: blockedReason });
+  if (blockedReason) return done(result(f, { decision: 'blocked', reason: blockedReason }));
 
   if (
     flags.primaryAuthorIndex !== undefined &&
     f.context.authorIndex !== undefined &&
     f.context.authorIndex !== flags.primaryAuthorIndex
   ) {
-    return result(f, { decision: 'skip', reason: 'belongs to another author (multi-author fill arrives in V2)' });
+    return done(result(f, { decision: 'skip', reason: 'belongs to another author (multi-author fill arrives in V2)' }));
+  }
+
+  if (extra.site?.key === 'IGNORE') {
+    return done(result(f, { decision: 'skip', layer: 'site', reason: 'you told SmartFill to ignore this field here' }));
   }
 
   const pf = prepareField(f);
-  let cands = rankCandidates(f, pf);
+  let cands: Candidate[] = rankCandidates(f, pf);
 
   // "Name" next to first/last fields is not the full name.
   if (flags.hasSplitName) {
@@ -67,52 +134,169 @@ function matchOne(f: FieldInfo, opts: Required<MatchOptions>, flags: FormFlags):
 
   const top = cands[0];
   const second = cands[1];
-  const candidates = cands.slice(0, 3).map((c) => ({ key: c.key, score: round(c.score) }));
-  if (!top || top.score < thresholds.ask) {
-    return result(f, { decision: 'skip', reason: 'no confident match', candidates, confidence: round(top?.score ?? 0) });
+  const ruleOk = !!top && top.score >= thresholds.ask;
+  const ambiguous = ruleOk && !!second && top.score - second.score < RULE_MARGIN;
+  const ruleConclusive = ruleOk && top.score >= RULE_ACCEPT && !ambiguous;
+
+  const picks: Proposal[] = [];
+  let reason = '';
+  if (extra.site) {
+    picks.push({ layer: 'site', key: extra.site.key, score: 0.99 });
+    reason = 'learned from your earlier correction on this site';
+  } else {
+    const conflict = sectionConflict(pf);
+    if (ruleOk) {
+      picks.push({
+        layer: top.signal === 'autocomplete' ? 'autocomplete' : 'rule',
+        key: top.key,
+        score: ambiguous ? Math.min(top.score, AMBIGUOUS_CAP) : top.score,
+      });
+      reason = ambiguous
+        ? `ambiguous between ${top.key} and ${second!.key}`
+        : top.signal !== 'autocomplete' && top.score < RULE_ACCEPT
+          ? `weak ${top.signal} match`
+          : `${top.signal} match`;
+    }
+    const emb = extra.embedding;
+    // Fields about someone else (billing, guardian…) never get a semantic or LLM fill.
+    if (emb && !conflict && embeddingAccepted(emb)) {
+      picks.push({ layer: 'embedding', key: emb[0]!.key, score: Math.min(emb[0]!.score, EMBEDDING_CAP) });
+    }
+    if (extra.llm?.key && !conflict) {
+      picks.push({ layer: 'llm', key: extra.llm.key, score: Math.min(extra.llm.confidence, LLM_CAP) });
+    }
   }
 
-  let confidence = top.score;
-  let reason = `${top.signal} match`;
-  if (second && top.score - second.score < RULE_MARGIN) {
-    confidence = Math.min(confidence, AMBIGUOUS_CAP);
-    reason = `ambiguous between ${top.key} and ${second.key}`;
-  } else if (top.signal !== 'autocomplete' && confidence < RULE_ACCEPT) {
-    reason = `weak ${top.signal} match`;
+  const round = (n: number) => Math.round(n * 1000) / 1000;
+  const mergedCandidates = [
+    ...cands.map((c) => ({ key: c.key, score: c.score })),
+    ...(extra.embedding ?? []).map((c) => ({ key: c.key, score: c.score })),
+  ];
+  const seen = new Set<string>();
+  const candidates = mergedCandidates
+    .sort((a, b) => b.score - a.score)
+    .filter((c) => !seen.has(c.key) && !!seen.add(c.key))
+    .slice(0, 3)
+    .map((c) => ({ key: c.key, score: round(c.score) }));
+
+  const needsMore = !extra.site && !ruleConclusive;
+
+  if (picks.length === 0) {
+    return {
+      needsMore,
+      result: result(f, {
+        decision: 'skip',
+        reason: 'no confident match',
+        candidates,
+        confidence: round(top?.score ?? extra.embedding?.[0]?.score ?? 0),
+      }),
+    };
   }
 
-  const base = {
-    key: top.key,
-    confidence: round(confidence),
-    layer: top.signal === 'autocomplete' ? ('autocomplete' as const) : ('rule' as const),
-    candidates,
-  };
+  const fused = fuse(picks);
+  if (fused.disagree) reason = `layers disagree (${picks.map((p) => `${p.layer}:${p.key}`).join(' vs ')})`;
+  else if (picks.length > 1) reason = `${picks.map((p) => p.layer).join(' + ')} agree`;
+  else if (fused.layer === 'embedding') reason = 'semantic match';
+  else if (fused.layer === 'llm') reason = 'LLM chose among candidate keys';
 
-  const def = getKeyDef(top.key);
-  if (!def) return result(f, { ...base, decision: 'skip', reason: 'unknown key' });
-  if (def.sensitive) return result(f, { ...base, decision: 'blocked', reason: 'sensitive profile key' });
+  const base = { key: fused.key, confidence: round(fused.confidence), layer: fused.layer, candidates };
+  const finish = (r: MatchResult): Matched => ({ result: r, needsMore });
 
-  const verdict = validateFill(def, values[top.key], f);
+  const def = getKeyDef(fused.key);
+  if (!def) return finish(result(f, { ...base, decision: 'skip', reason: 'unknown key' }));
+  if (def.sensitive) return finish(result(f, { ...base, decision: 'blocked', reason: 'sensitive profile key' }));
+
+  const verdict = validateFill(def, values[fused.key], f);
   if (verdict.verdict === 'skip') {
-    return result(f, { ...base, decision: 'skip', reason: verdict.reason ?? 'cannot fill' });
+    return finish(result(f, { ...base, decision: 'skip', reason: verdict.reason ?? 'cannot fill' }));
   }
 
-  let decision: Decision = decideBand(confidence, thresholds);
+  let decision: Decision = decideBand(fused.confidence, thresholds);
   if (verdict.verdict === 'review') {
     decision = moreCautious(decision, 'review');
     reason = verdict.reason ?? reason;
   }
   if (decision === 'skip' || decision === 'ask' || verdict.fillValue === undefined) {
-    return result(f, { ...base, decision, reason });
+    return finish(result(f, { ...base, decision, reason }));
   }
-  const preview = f.controlType === 'select' ? values[top.key]!.trim() : verdict.fillValue;
-  return result(f, { ...base, decision, reason, value: verdict.fillValue, preview });
+  const preview = f.controlType === 'select' ? values[fused.key]!.trim() : verdict.fillValue;
+  return finish(result(f, { ...base, decision, reason, value: verdict.fillValue, preview }));
 }
 
-const round = (n: number) => Math.round(n * 1000) / 1000;
+function normalizeOptions(options: MatchOptions): Required<MatchOptions> {
+  return { values: options.values, thresholds: options.thresholds ?? DEFAULT_SETTINGS.thresholds };
+}
 
+/** Rules-only matching (synchronous). */
 export function matchFields(fields: FieldInfo[], options: MatchOptions): MatchResult[] {
-  const opts = { values: options.values, thresholds: options.thresholds ?? DEFAULT_SETTINGS.thresholds };
+  const opts = normalizeOptions(options);
   const flags = formFlags(fields);
-  return fields.map((f) => matchOne(f, opts, flags));
+  return fields.map((f) => matchOne(f, opts, flags).result);
+}
+
+function siteExtra(f: FieldInfo, lookup: MatchServices['site']): ExtraSignals {
+  const key = lookup?.(f);
+  return key ? { site: { key } } : {};
+}
+
+/** Full cascade: site memory → rules → embeddings. Embeddings run only for fields rules could not settle. */
+export async function matchFieldsAsync(
+  fields: FieldInfo[],
+  options: MatchOptions,
+  services: MatchServices = {},
+): Promise<MatchResult[]> {
+  const opts = normalizeOptions(options);
+  const flags = formFlags(fields);
+  const extras: ExtraSignals[] = fields.map((f) => siteExtra(f, services.site));
+  let matched = fields.map((f, i) => matchOne(f, opts, flags, extras[i]));
+
+  const rank = services.rank ?? (services.embed ? createEmbeddingIndex(services.embed, services.calibration).rank : undefined);
+  if (rank) {
+    // needsMore is false for blocked, other-author and ignored fields, so those never reach a model.
+    const eligible = matched.map((m, i) => (m.needsMore ? i : -1)).filter((i) => i >= 0);
+    if (eligible.length) {
+      try {
+        const ranked = await rank(eligible.map((i) => fields[i]!));
+        eligible.forEach((fi, n) => {
+          extras[fi] = { ...extras[fi], embedding: ranked[n] };
+          matched[fi] = matchOne(fields[fi]!, opts, flags, extras[fi]);
+        });
+      } catch {
+        /* embedding layer unavailable → rules-only result stands */
+      }
+    }
+  }
+  return matched.map((m) => m.result);
+}
+
+export interface FillCheck {
+  ok: boolean;
+  value?: string;
+  preview?: string;
+  /** Needs a human even when selected (e.g. maxlength exceeded). */
+  review?: boolean;
+  reason?: string;
+}
+
+/** Can `key` be written into `f` with the profile's value? Used when the user overrides a mapping. */
+export function checkFill(f: FieldInfo, key: string, values: ProfileValues): FillCheck {
+  const def = getKeyDef(key);
+  if (!def) return { ok: false, reason: 'unknown key' };
+  if (def.sensitive || sensitiveReason(f)) return { ok: false, reason: 'protected field' };
+  const v = validateFill(def, values[key], f);
+  if (v.verdict === 'skip' || v.fillValue === undefined) return { ok: false, reason: v.reason };
+  return {
+    ok: true,
+    value: v.fillValue,
+    preview: f.controlType === 'select' ? values[key]!.trim() : v.fillValue,
+    review: v.verdict === 'review',
+    reason: v.reason,
+  };
+}
+
+/** Fields the deterministic rules could not settle: the only ones ever sent to later layers. */
+export function escalationCandidates(fields: FieldInfo[], options: MatchOptions): FieldInfo[] {
+  const opts = normalizeOptions(options);
+  const flags = formFlags(fields);
+  return fields.filter((f) => matchOne(f, opts, flags).needsMore);
 }

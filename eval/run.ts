@@ -1,17 +1,56 @@
-import { evaluate } from './evaluate';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import type { Embedder } from '@smartfill/core';
+import { createNodeEmbedder, modelAvailable } from './embedder';
+import { evaluate, riskCoverage, type Metrics } from './evaluate';
 
-const m = evaluate();
 const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
 
-console.table(m.rows.filter((r) => r.decision !== 'auto' || !r.ok || r.expected !== r.got));
-console.log(`forms=${m.forms} fields=${m.fields} matchable=${m.matchable} fills=${m.fills}`);
-console.log(`precision            ${pct(m.precision)}`);
-console.log(`recall (auto only)   ${pct(m.recall)}`);
-console.log(`recall (auto+review) ${pct(m.recallWithReview)}`);
-console.log(`false autofill rate  ${pct(m.falseAutofillRate)}`);
-console.log(`unknown safety rate  ${pct(m.unknownSafetyRate)}`);
-console.log(`coverage             ${pct(m.coverage)}`);
-if (m.problems.length) {
-  console.error('\nFixture problems:\n' + m.problems.join('\n'));
-  process.exitCode = 1;
+function summary(name: string, m: Metrics) {
+  return {
+    config: name,
+    fields: m.fields,
+    fills: m.fills,
+    precision: pct(m.precision),
+    'recall(auto)': pct(m.recall),
+    'prec(+review)': pct(m.precisionWithReview),
+    'recall(+review)': pct(m.recallWithReview),
+    FAR: pct(m.falseAutofillRate),
+    USR: pct(m.unknownSafetyRate),
+    coverage: pct(m.coverage),
+    'ms/form': m.medianMs.toFixed(1),
+  };
 }
+
+(async () => {
+  const rules = await evaluate();
+  const table = [summary('rules', rules)];
+  let best = rules;
+
+  if (modelAvailable()) {
+    const base: Embedder = await createNodeEmbedder();
+    let calls = 0;
+    const embedder: Embedder = async (t) => ((calls += t.length), base(t));
+    await embedder(['warm up']); // load model + JIT outside the timing
+    const withEmb = await evaluate({ embedder });
+    table.push(summary('rules + embeddings', withEmb));
+    best = withEmb;
+    console.log(`embedding texts per run: ${calls}`);
+  } else {
+    console.log('(embedding model not found: run `npm run fetch-model` to include the embeddings ablation)');
+  }
+
+  console.table(table);
+  const interesting = best.rows.filter((r) => r.decision !== 'auto' && (r.matchable || r.got) || !r.ok);
+  console.table(interesting.map((r) => ({ form: r.form.slice(0, 22), ref: r.ref, expected: r.expected, got: r.got, decision: r.decision, layer: r.layer, conf: r.confidence })));
+
+  const curve = riskCoverage(best.rows);
+  const csv = ['threshold,coverage,false_autofill_rate', ...curve.map((c) => `${c.threshold},${c.coverage.toFixed(4)},${c.far.toFixed(4)}`)].join('\n');
+  writeFileSync(join(__dirname, 'risk-coverage.csv'), csv + '\n');
+  writeFileSync(join(__dirname, 'results.json'), JSON.stringify(table, null, 2) + '\n');
+
+  if (best.problems.length) {
+    console.error('\nFixture problems:\n' + best.problems.join('\n'));
+    process.exitCode = 1;
+  }
+})();

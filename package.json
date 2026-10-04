@@ -2,23 +2,33 @@
   "name": "smartfill",
   "private": true,
   "version": "0.1.0",
-  "workspaces": ["packages/*", "apps/*"],
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit && npm run typecheck -w @smartfill/extension",
     "eval": "tsx eval/run.ts",
+    "calibrate": "tsx eval/calibrate.ts",
     "dev": "npm run dev -w @smartfill/extension",
     "build": "npm run build -w @smartfill/extension",
-    "zip": "npm run zip -w @smartfill/extension"
+    "zip": "npm run zip -w @smartfill/extension",
+    "fetch-model": "node scripts/fetch-model.mjs",
+    "e2e": "cross-env SMARTFILL_E2E=1 npm run build -w @smartfill/extension && playwright test"
   },
-  "overrides": { "@vitejs/plugin-react": "^4.3.4" },
+  "overrides": {
+    "@vitejs/plugin-react": "^4.3.4"
+  },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/jsdom": "^21.1.7",
     "@types/node": "^20.14.0",
+    "cross-env": "^10.1.0",
     "jsdom": "^25.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
-    "vitest": "^3.0.0",
-    "vite": "^6.3.0"
+    "vite": "^6.3.0",
+    "vitest": "^3.0.0"
   }
 }

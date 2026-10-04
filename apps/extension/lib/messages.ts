@@ -1,6 +1,6 @@
 import type { Decision } from '@smartfill/core';
 
-export type Command = 'smartfill:scan' | 'smartfill:fill' | 'smartfill:undo';
+export type Command = 'smartfill:scan' | 'smartfill:fill' | 'smartfill:undo' | 'smartfill:review';
 
 /** Popup → background. */
 export interface CommandMessage {

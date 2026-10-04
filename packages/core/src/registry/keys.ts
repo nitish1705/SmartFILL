@@ -52,7 +52,7 @@ export const REGISTRY: ProfileKeyDef[] = [
     description: 'phone or mobile number',
     synonyms: ['phone', 'phone number', 'telephone', 'telephone number', 'mobile', 'mobile number', 'mobile no', 'contact number', 'contact no', 'cell', 'cell phone', 'cellphone'],
     autocomplete: ['tel', 'tel-national'],
-    negativeHints: ['fax', 'emergency', 'parent', 'guardian', 'code', 'country'],
+    negativeHints: ['fax', 'emergency', 'parent', 'guardian', 'code'],
   },
   {
     key: 'personal.country', label: 'Country', type: 'country',

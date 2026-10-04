@@ -3,3 +3,9 @@ node_modules
 .wxt
 dist
 *.log
+
+apps/extension/public/models
+apps/extension/public/ort
+apps/extension/.output-e2e
+test-results
+playwright-report

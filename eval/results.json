@@ -1,0 +1,28 @@
+[
+  {
+    "config": "rules",
+    "fields": 195,
+    "fills": 74,
+    "precision": "100.0%",
+    "recall(auto)": "61.2%",
+    "prec(+review)": "97.5%",
+    "recall(+review)": "95.9%",
+    "FAR": "0.0%",
+    "USR": "100.0%",
+    "coverage": "37.9%",
+    "ms/form": "13.0"
+  },
+  {
+    "config": "rules + embeddings",
+    "fields": 195,
+    "fills": 74,
+    "precision": "100.0%",
+    "recall(auto)": "61.2%",
+    "prec(+review)": "97.5%",
+    "recall(+review)": "95.9%",
+    "FAR": "0.0%",
+    "USR": "100.0%",
+    "coverage": "37.9%",
+    "ms/form": "17.5"
+  }
+]

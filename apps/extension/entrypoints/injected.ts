@@ -1,6 +1,8 @@
 import { browser } from 'wxt/browser';
 import { getKeyDef, type MatchResult } from '@smartfill/core';
-import { analyzeDocument, applyResults, undoFill, type Analysis, type FillRecord } from '@smartfill/dom';
+import { analyzeDocumentAsync, applyResults, fillField, undoFill, type Analysis, type FillRecord } from '@smartfill/dom';
+import type { EmbeddingCandidate, FieldInfo } from '@smartfill/core';
+import { openOverlay } from '@/lib/overlay';
 import { getProfile, getSettings } from '@/lib/storage';
 import type { Counts, Response, Row } from '@/lib/messages';
 
@@ -44,9 +46,24 @@ function summarize(a: Analysis): Response {
   return { ok: true, rows, counts };
 }
 
+/** Ask the background (offscreen model) to rank the fields rules could not settle. Failure → rules only. */
+async function rank(fields: FieldInfo[]): Promise<EmbeddingCandidate[][]> {
+  // strip DOM references: only plain field descriptions leave the page script
+  const plain = fields.map((f) => JSON.parse(JSON.stringify({ ...f, element: undefined })) as FieldInfo);
+  const res = (await browser.runtime.sendMessage({ type: 'smartfill:rank', fields: plain })) as
+    | { ok: true; ranked: EmbeddingCandidate[][] }
+    | { ok: false; error: string }
+    | undefined;
+  if (!res?.ok) throw new Error(res?.ok === false ? res.error : 'embedding unavailable');
+  return res.ranked;
+}
+
+let values: Record<string, string> = {};
+
 async function scan(): Promise<Analysis> {
   const [profile, settings] = await Promise.all([getProfile(), getSettings()]);
-  analysis = analyzeDocument(document, { values: profile.values, thresholds: settings.thresholds });
+  values = profile.values;
+  analysis = await analyzeDocumentAsync(document, { values, thresholds: settings.thresholds }, { rank });
   return analysis;
 }
 
@@ -61,6 +78,24 @@ async function onMessage(type: string): Promise<Response | { pong: true }> {
       const records = applyResults(await scan());
       undoStack = [...undoStack, ...records];
       return { ...(summarize(await scan()) as Extract<Response, { ok: true }>), filled: records.length };
+    }
+    case 'smartfill:review': {
+      const a = await scan();
+      openOverlay({
+        analysis: a,
+        values,
+        onFill: async (items) => {
+          const records = items.map((i) => fillField(i.field.element, i.value, i.kind));
+          undoStack = [...undoStack, ...records];
+          return records.length;
+        },
+        onUndo: async () => {
+          const n = undoFill(undoStack);
+          undoStack = [];
+          return n;
+        },
+      });
+      return summarize(a);
     }
     case 'smartfill:undo': {
       const n = undoFill(undoStack);

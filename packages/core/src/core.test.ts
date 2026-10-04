@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { matchFields, matchOption, normalizeIdentifier, normalizeText, type FieldInfo } from './index';
+import { matchFields, matchFieldsAsync, matchOption, normalizeIdentifier, normalizeText, type FieldInfo } from './index';
 
 function field(over: Partial<FieldInfo['context']> & { type?: string; control?: FieldInfo['controlType'] } = {}, extra: Partial<FieldInfo> = {}): FieldInfo {
   const { type, control, ...context } = over;
@@ -161,5 +161,56 @@ describe('option matching', () => {
     expect(matchOption('Select', countries)).toBe(-1);
     expect(matchOption('Atlantis', countries)).toBe(-1);
     expect(matchOption('Karnatakaa', [{ text: 'Karnataka', value: 'ka' }])).toBe(0);
+  });
+});
+
+describe('embedding layer and fusion', () => {
+  // bag-of-words embedder: shared words → high cosine, deterministic, no model needed
+  const DIM = 4096;
+  const hash = (w: string) => [...w].reduce((h, c) => (h * 131 + c.charCodeAt(0)) % DIM, 7);
+  const embed = async (texts: string[]) =>
+    texts.map((t) => {
+      const v = new Array<number>(DIM).fill(0);
+      for (const w of t.toLowerCase().split(/[^a-z]+/).filter(Boolean)) v[hash(w)]! += 1;
+      const n = Math.hypot(...v) || 1;
+      return v.map((x) => x / n);
+    });
+  const calibration = { a: 10, b: -3 }; // permissive so a fake model can reach acceptance
+  const vals = { 'professional.designation': 'Engineer', 'personal.phone': '123' };
+  const run2 = (f: FieldInfo, v = vals) => matchFieldsAsync([f], { values: v }, { embed, calibration }).then((r) => r[0]!);
+
+  it('uses embeddings only for fields the rules could not settle', async () => {
+    const seen: string[][] = [];
+    const spy = async (t: string[]) => (seen.push(t), embed(t));
+    await matchFieldsAsync([field({ label: 'Email' })], { values }, { embed: spy });
+    expect(seen).toHaveLength(0);
+  });
+
+  it('semantic match lands in the review band, never auto', async () => {
+    const r = await run2(field({ label: 'Job' }));
+    expect(r.key).toBe('professional.designation');
+    expect(r.layer).not.toBe('rule');
+    expect(r.decision).toBe('review');
+    expect(r.confidence).toBeLessThanOrEqual(0.94);
+  });
+
+  it('falls back to rules when the embedder throws', async () => {
+    const r = (await matchFieldsAsync([field({ label: 'Job' })], { values: vals }, { embed: async () => { throw new Error('offline'); } }))[0]!;
+    expect(r.decision).not.toBe('auto');
+  });
+
+  it('does not let embeddings override sensitive blocking or other-person context', async () => {
+    const blocked = await run2(field({ label: 'Card number' }));
+    expect(blocked.decision).toBe('blocked');
+    const guardian = await run2(field({ label: 'Guardian telephone', sectionHeading: 'Guardian' }));
+    expect(guardian.decision).not.toBe('auto');
+  });
+
+  it('site memory wins and IGNORE leaves the field blank', async () => {
+    const f = field({ label: 'Something odd' });
+    const hit = (await matchFieldsAsync([f], { values }, { site: () => 'personal.email' }))[0]!;
+    expect(hit).toMatchObject({ key: 'personal.email', layer: 'site', decision: 'auto' });
+    const ignored = (await matchFieldsAsync([field({ label: 'Email' })], { values }, { site: () => 'IGNORE' }))[0]!;
+    expect(ignored.decision).toBe('skip');
   });
 });

@@ -6,3 +6,10 @@ export type { MatchOptions } from './match';
 export { rankCandidates, prepareField } from './match/rules';
 export { validateFill, matchOption, sensitiveReason } from './validate';
 export { decideBand, moreCautious } from './decide';
+export { matchFieldsAsync, checkFill, escalationCandidates } from './match';
+export type { MatchServices, ExtraSignals, FillCheck } from './match';
+export {
+  createEmbeddingIndex, embeddingAccepted, fieldText, keyAnchors, calibrate, cosine,
+  DEFAULT_CALIBRATION, EMBEDDING_ACCEPT, EMBEDDING_MARGIN, EMBEDDING_CAP,
+} from './embedding';
+export type { Embedder, EmbeddingCandidate, EmbeddingIndex, Calibration } from './embedding';

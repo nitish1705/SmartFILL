@@ -86,6 +86,7 @@ export function App() {
         >
           Fill safe fields{ready ? ` (${ready.counts.safe})` : ''}
         </button>
+        <button disabled={busy || !ready} onClick={async () => { await run('smartfill:review'); window.close(); }}>Review</button>
         <button disabled={busy} onClick={() => run('smartfill:undo')}>Undo</button>
         <button onClick={() => browser.runtime.openOptionsPage()}>Profile</button>
       </div>
