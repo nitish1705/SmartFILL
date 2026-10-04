@@ -8,6 +8,7 @@ import {
   type Calibration,
   type EmbeddingCandidate,
 } from '../embedding';
+import { LLM_BATCH_SIZE, LLM_TIMEOUT_MS, buildLlmRequest, llmCandidateKeys, parseLlmResponse, type LlmRequest } from '../llm';
 import { getKeyDef } from '../registry/keys';
 import { validateFill } from '../validate';
 import { sensitiveReason } from '../validate/sensitive';
@@ -33,6 +34,10 @@ export interface MatchServices {
   embed?: Embedder;
   /** Alternative to `embed`: rank fields remotely (offscreen document keeps key vectors warm). */
   rank?: (fields: FieldInfo[]) => Promise<EmbeddingCandidate[][]>;
+  /** Constrained LLM fallback (Layer 3). Receives only field descriptions + candidate keys; returns untrusted JSON. */
+  llm?: (request: LlmRequest) => Promise<unknown>;
+  /** Observe exactly what is sent to the LLM (privacy transparency). */
+  onLlmRequest?: (request: LlmRequest) => void;
   /** Override the fitted Platt calibration (tests, experiments). */
   calibration?: Calibration;
   /** Learned site mapping lookup (Layer 0). */
@@ -263,6 +268,34 @@ export async function matchFieldsAsync(
         });
       } catch {
         /* embedding layer unavailable → rules-only result stands */
+      }
+    }
+  }
+  if (services.llm) {
+    // Only fields still unsettled (skipped or merely "unsure") whose candidate keys have profile values.
+    const asks = matched
+      .map((m, i) => ({ i, m }))
+      .filter(({ m }) => m.needsMore && (m.result.decision === 'skip' || m.result.decision === 'ask'))
+      .map(({ i, m }) => ({ i, candidates: llmCandidateKeys(m.result.candidates, opts.values) }))
+      .filter((a) => a.candidates.length > 0);
+    for (let at = 0; at < asks.length; at += LLM_BATCH_SIZE) {
+      const batch = asks.slice(at, at + LLM_BATCH_SIZE);
+      const request = buildLlmRequest(batch.map((a) => ({ field: fields[a.i]!, candidates: a.candidates })));
+      try {
+        services.onLlmRequest?.(request);
+        const raw = await Promise.race([
+          services.llm(request),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('LLM timeout')), LLM_TIMEOUT_MS)),
+        ]);
+        const picks = parseLlmResponse(raw, request, opts.values);
+        for (const a of batch) {
+          const pick = picks.get(fields[a.i]!.fieldId);
+          if (!pick?.key) continue;
+          extras[a.i] = { ...extras[a.i], llm: { key: pick.key, confidence: pick.confidence } };
+          matched[a.i] = matchOne(fields[a.i]!, opts, flags, extras[a.i]);
+        }
+      } catch {
+        /* timeout / network / bad response → keep the embedding+rules result silently */
       }
     }
   }

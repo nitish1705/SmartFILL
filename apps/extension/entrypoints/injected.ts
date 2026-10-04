@@ -1,7 +1,7 @@
 import { browser } from 'wxt/browser';
 import { getKeyDef, type MatchResult } from '@smartfill/core';
 import { analyzeDocumentAsync, applyResults, fillField, undoFill, type Analysis, type FillRecord } from '@smartfill/dom';
-import type { EmbeddingCandidate, FieldInfo } from '@smartfill/core';
+import type { EmbeddingCandidate, FieldInfo, LlmRequest } from '@smartfill/core';
 import { openOverlay } from '@/lib/overlay';
 import { getProfile, getSettings } from '@/lib/storage';
 import type { Counts, Response, Row } from '@/lib/messages';
@@ -39,6 +39,7 @@ function summarize(a: Analysis): Response {
       keyLabel: r.key ? getKeyDef(r.key)?.label : undefined,
       confidence: r.confidence,
       decision: r.decision,
+      layer: r.layer,
       reason: r.reason,
       preview: r.preview,
     };
@@ -58,12 +59,22 @@ async function rank(fields: FieldInfo[]): Promise<EmbeddingCandidate[][]> {
   return res.ranked;
 }
 
+async function llm(request: LlmRequest): Promise<unknown> {
+  const res = (await browser.runtime.sendMessage({ type: 'smartfill:llm', request })) as
+    | { ok: true; raw: unknown }
+    | { ok: false; error: string }
+    | undefined;
+  if (!res?.ok) throw new Error(res?.ok === false ? res.error : 'LLM unavailable');
+  return res.raw;
+}
+
 let values: Record<string, string> = {};
 
 async function scan(): Promise<Analysis> {
   const [profile, settings] = await Promise.all([getProfile(), getSettings()]);
   values = profile.values;
-  analysis = await analyzeDocumentAsync(document, { values, thresholds: settings.thresholds }, { rank });
+  const aiOn = settings.llm.enabled && settings.llm.provider !== 'off';
+  analysis = await analyzeDocumentAsync(document, { values, thresholds: settings.thresholds }, { rank, llm: aiOn ? llm : undefined });
   return analysis;
 }
 

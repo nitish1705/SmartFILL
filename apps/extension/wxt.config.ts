@@ -13,6 +13,8 @@ export default defineConfig({
     description: 'Fill web forms from your verified profile. Local-first; never submits; leaves unknown fields blank.',
     // activeTab + scripting: the page is only touched when the user clicks SmartFill.
     permissions: ['storage', 'activeTab', 'scripting', 'offscreen'],
+    // Requested at runtime, and only for the AI endpoint the user configures.
+    optional_host_permissions: ['https://*/*', 'http://localhost/*', 'http://127.0.0.1/*'],
     ...(e2e ? { host_permissions: ['http://localhost/*'] } : {}),
     // ONNX Runtime needs WebAssembly; no remote code is allowed.
     content_security_policy: { extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'" },

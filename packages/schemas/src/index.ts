@@ -12,6 +12,10 @@ export const SettingsSchema = z.object({
     enabled: z.boolean(),
     provider: z.enum(['proxy', 'ollama', 'off']),
     endpoint: z.string().optional(),
+    /** Ollama model name. */
+    model: z.string().optional(),
+    /** Optional shared secret for your own proxy (never an Anthropic API key). */
+    token: z.string().optional(),
   }),
   learning: z.object({ enabled: z.boolean() }),
   locked: z.boolean(),
@@ -24,9 +28,20 @@ export const ProfileSchema = z.object({
   updatedAt: z.number(),
 });
 
+export const LlmResultSchema = z.object({
+  field_id: z.string(),
+  matched_profile_key: z.string().nullable(),
+  confidence: z.number(),
+  reason: z.string().max(300).optional(),
+});
+
+/** Response contract for the LLM fallback; anything else is discarded. */
+export const LlmResponseSchema = z.object({ results: z.array(LlmResultSchema).max(50) });
+
 export type Thresholds = z.infer<typeof ThresholdsSchema>;
 export type Settings = z.infer<typeof SettingsSchema>;
 export type Profile = z.infer<typeof ProfileSchema>;
+export type LlmResponse = z.infer<typeof LlmResponseSchema>;
 
 export const DEFAULT_SETTINGS: Settings = {
   thresholds: { auto: 0.95, review: 0.8, ask: 0.5 },

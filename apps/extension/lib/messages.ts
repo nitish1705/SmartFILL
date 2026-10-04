@@ -15,6 +15,7 @@ export interface Row {
   keyLabel?: string;
   confidence: number;
   decision: Decision;
+  layer: string;
   reason: string;
   preview?: string;
 }

@@ -1,13 +1,15 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { JSDOM } from 'jsdom';
-import type { Embedder, MatchResult } from '@smartfill/core';
-import { analyzeDocument, analyzeDocumentAsync, type Analysis } from '@smartfill/dom';
+import type { Embedder, LlmRequest, MatchResult } from '@smartfill/core';
+import { analyzeDocument, analyzeDocumentAsync, detectFields, type Analysis } from '@smartfill/dom';
 
 const FIXTURES = join(__dirname, '..', 'fixtures', 'forms');
 export const profile: Record<string, string> = JSON.parse(readFileSync(join(__dirname, 'profile.json'), 'utf8'));
 
 export interface EvalOptions {
+  /** LLM service; `ctx.lookup(fieldId)` maps a request field id back to `${form}|${ref}` (for oracles). */
+  llm?: (request: LlmRequest, ctx: { lookup: (fieldId: string) => string }) => Promise<unknown>;
   /** Enable the embedding layer with this embedder. */
   embedder?: Embedder;
   /** Learned site mappings for the second-visit simulation: `${form}|${ref}` → key. */
@@ -79,10 +81,16 @@ export async function evaluate(opts: EvalOptions = {}): Promise<Metrics> {
     const doc = new JSDOM(html).window.document;
     const t0 = performance.now();
     let analysis: Analysis;
+    let analysisFields: Analysis['fields'] = [];
     const matchOpts = { values: profile, thresholds: opts.thresholds };
-    if (opts.embedder || opts.learned) {
+    if (opts.embedder || opts.learned || opts.llm) {
+      const detected = detectFields(doc);
+      analysisFields = detected;
       analysis = await analyzeDocumentAsync(doc, matchOpts, {
         embed: opts.embedder,
+        llm: opts.llm
+          ? (req) => opts.llm!(req, { lookup: (id) => { const f = analysisFields.find((x) => x.fieldId === id)!; return `${file}|${refOf(f.context, f.fieldId)}`; } })
+          : undefined,
         site: opts.learned
           ? (f) => opts.learned!.get(`${file}|${refOf(f.context, f.fieldId)}`)
           : undefined,

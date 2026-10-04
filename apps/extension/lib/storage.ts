@@ -23,3 +23,7 @@ export async function getSettings(): Promise<Settings> {
   const parsed = SettingsSchema.safeParse(settings);
   return parsed.success ? parsed.data : DEFAULT_SETTINGS;
 }
+
+export async function saveSettings(settings: Settings): Promise<void> {
+  await browser.storage.local.set({ settings: SettingsSchema.parse(settings) });
+}

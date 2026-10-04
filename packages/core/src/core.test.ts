@@ -214,3 +214,60 @@ describe('embedding layer and fusion', () => {
     expect(ignored.decision).toBe('skip');
   });
 });
+
+describe('LLM fallback protocol', () => {
+  const fieldA = field({ label: 'Mystery thing' });
+  const v: Record<string, string> = { 'personal.email': 'ada@example.edu', 'academic.institution': 'Indian Institute of Science', 'personal.phone': '+91 98765 43210' };
+
+  it('sends only descriptions and candidate keys — never profile values or DOM', async () => {
+    let sent = '';
+    await matchFieldsAsync([{ ...fieldA, context: { ...fieldA.context, sectionHeading: 'About', pageTitle: 'Reg' } }], { values: v }, {
+      rank: async () => [[{ key: 'academic.institution', cosine: 0.3, score: 0.3 }, { key: 'personal.email', cosine: 0.2, score: 0.2 }]],
+      llm: async (req) => ((sent = JSON.stringify(req)), { results: [] }),
+    });
+    expect(sent).toContain('Mystery thing');
+    for (const secret of Object.values(v)) expect(sent).not.toContain(secret);
+    expect(sent).not.toContain('element');
+  });
+
+  const ask = async (answer: (f: FieldInfo) => unknown, label = 'Mystery thing') => {
+    const f = field({ label });
+    const rank = async () => [[{ key: 'academic.institution', cosine: 0.3, score: 0.3 }, { key: 'personal.email', cosine: 0.2, score: 0.2 }]];
+    return (await matchFieldsAsync([f], { values: v }, { rank, llm: async () => answer(f) }))[0]!;
+  };
+
+  it('accepts a valid in-candidate answer but caps it below auto', async () => {
+    const r = await ask((f: FieldInfo) => ({ results: [{ field_id: f.fieldId, matched_profile_key: 'academic.institution', confidence: 0.99, reason: 'asks for affiliation' }] }));
+    expect(r).toMatchObject({ key: 'academic.institution', layer: 'llm', decision: 'review' });
+    expect(r.confidence).toBeLessThanOrEqual(0.9);
+  });
+
+  it('rejects keys outside the candidate list', async () => {
+    const r = await ask((f: FieldInfo) => ({ results: [{ field_id: f.fieldId, matched_profile_key: 'personal.phone', confidence: 0.9 }] }));
+    expect(r.layer).not.toBe('llm');
+    expect(r.decision).not.toBe('auto');
+  });
+
+  it('rejects answers that quote profile values', async () => {
+    const r = await ask((f: FieldInfo) => ({ results: [{ field_id: f.fieldId, matched_profile_key: 'academic.institution', confidence: 0.9, reason: 'Indian Institute of Science' }] }));
+    expect(r.layer).not.toBe('llm');
+    const e = await ask((f: FieldInfo) => ({ results: [{ field_id: f.fieldId, matched_profile_key: 'academic.institution', confidence: 0.9, reason: 'try ada@example.edu' }] }));
+    expect(e.layer).not.toBe('llm');
+  });
+
+  it('ignores malformed responses and survives errors/timeouts', async () => {
+    expect((await ask(() => 'not json')).layer).not.toBe('llm');
+    expect((await ask(() => ({ results: [{ nope: 1 }] }))).layer).not.toBe('llm');
+    const f = field({ label: 'Mystery thing' });
+    const r = (await matchFieldsAsync([f], { values: v }, { rank: async () => [[{ key: 'academic.institution', cosine: 1, score: 0.3 }]], llm: async () => { throw new Error('offline'); } }))[0]!;
+    expect(r.decision).not.toBe('auto');
+  });
+
+  it('is never consulted for blocked fields or when nothing in the profile could match', async () => {
+    let calls = 0;
+    const llm = async () => (calls++, { results: [] });
+    await matchFieldsAsync([field({ label: 'Card number' })], { values: v }, { rank: async () => [[{ key: 'academic.institution', cosine: 1, score: 0.3 }]], llm });
+    await matchFieldsAsync([field({ label: 'Mystery thing' })], { values: {} }, { rank: async () => [[{ key: 'academic.institution', cosine: 1, score: 0.3 }]], llm });
+    expect(calls).toBe(0);
+  });
+});

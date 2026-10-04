@@ -10,7 +10,7 @@
     "FAR": "0.0%",
     "USR": "100.0%",
     "coverage": "37.9%",
-    "ms/form": "13.0"
+    "ms/form": "12.5"
   },
   {
     "config": "rules + embeddings",
@@ -23,6 +23,19 @@
     "FAR": "0.0%",
     "USR": "100.0%",
     "coverage": "37.9%",
-    "ms/form": "17.5"
+    "ms/form": "19.8"
+  },
+  {
+    "config": "rules + emb + LLM (oracle upper bound)",
+    "fields": 195,
+    "fills": 74,
+    "precision": "100.0%",
+    "recall(auto)": "61.2%",
+    "prec(+review)": "97.6%",
+    "recall(+review)": "99.2%",
+    "FAR": "0.0%",
+    "USR": "100.0%",
+    "coverage": "37.9%",
+    "ms/form": "20.4"
   }
 ]

@@ -13,3 +13,8 @@ export {
   DEFAULT_CALIBRATION, EMBEDDING_ACCEPT, EMBEDDING_MARGIN, EMBEDDING_CAP,
 } from './embedding';
 export type { Embedder, EmbeddingCandidate, EmbeddingIndex, Calibration } from './embedding';
+export {
+  LLM_SYSTEM_PROMPT, LLM_BATCH_SIZE, LLM_CONFIDENCE_CAP, LLM_TIMEOUT_MS,
+  buildLlmRequest, llmCandidateKeys, parseLlmResponse,
+} from './llm';
+export type { LlmRequest, LlmFieldRequest, LlmPick } from './llm';

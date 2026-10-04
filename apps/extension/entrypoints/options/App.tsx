@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { REGISTRY } from '@smartfill/core';
 import { getProfile, saveProfile } from '@/lib/storage';
+import { AiSettings } from './AiSettings';
 
 const GROUPS = [
   { id: 'personal', title: 'Personal' },
@@ -10,6 +11,19 @@ const GROUPS = [
 ] as const;
 
 export function App() {
+  const [view, setView] = useState<'profile' | 'ai'>('profile');
+  return (
+    <main className="options">
+      <nav className="tabs" aria-label="Sections">
+        <button aria-selected={view === 'profile'} onClick={() => setView('profile')}>Profile</button>
+        <button aria-selected={view === 'ai'} onClick={() => setView('ai')}>AI assist</button>
+      </nav>
+      {view === 'profile' ? <ProfileEditor /> : <AiSettings />}
+    </main>
+  );
+}
+
+function ProfileEditor() {
   const [group, setGroup] = useState<(typeof GROUPS)[number]['id']>('personal');
   const [values, setValues] = useState<Record<string, string>>({});
   const [loaded, setLoaded] = useState(false);
@@ -42,7 +56,7 @@ export function App() {
   if (!loaded) return null;
 
   return (
-    <main className="options">
+    <div style={{ display: 'grid', gap: 16 }}>
       <header>
         <h1>Your SmartFill profile</h1>
         <p className="muted">
@@ -84,6 +98,6 @@ export function App() {
         <button className="primary" onClick={save}>Save profile</button>
         {saved && <span role="status" className="muted">Saved.</span>}
       </div>
-    </main>
+    </div>
   );
 }

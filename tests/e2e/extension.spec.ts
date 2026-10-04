@@ -26,6 +26,10 @@ let extId: string;
 
 test.beforeAll(async () => {
   server = createServer((req, res) => {
+    if (req.url === '/__odd.html') {
+      res.setHeader('content-type', 'text/html');
+      return void res.end('<title>Odd</title><h2>Details</h2><form><label for="x">Place you currently study at</label><input id="x" name="zq"></form>');
+    }
     try {
       const file = join(FIXTURES, decodeURIComponent((req.url ?? '/').slice(1)));
       res.setHeader('content-type', 'text/html');
@@ -149,4 +153,42 @@ test('review overlay lists fields with candidate dropdowns and fills only select
   await page.keyboard.press('Escape');
   await expect(overlay).toHaveCount(0);
   await page.close();
+});
+
+test('LLM fallback: receives only descriptions + candidate keys, answer lands in review (never auto)', async () => {
+  // mock proxy on its own port
+  const received: string[] = [];
+  const proxy = createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      received.push(body);
+      const r = JSON.parse(body);
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ results: r.fields.map((f: any) => ({ field_id: f.field_id, matched_profile_key: f.candidate_keys.includes('academic.institution') ? 'academic.institution' : null, confidence: 0.99, reason: 'asks where the user studies' })) }));
+    });
+  }).listen(0);
+  const port = (proxy.address() as AddressInfo).port;
+  try {
+    await sw.evaluate((p) => chrome.storage.local.set({ settings: { thresholds: { auto: 0.95, review: 0.8, ask: 0.5 }, llm: { enabled: true, provider: 'proxy', endpoint: `http://localhost:${p}` }, learning: { enabled: false }, locked: false } }), port);
+    const { page, tabId } = await open('__odd.html');
+    const scan = (await send('smartfill:scan', tabId)) as any;
+    const row = scan.rows.find((r: any) => r.label.startsWith('Place you'));
+    expect(row, JSON.stringify(scan.rows)).toBeTruthy();
+    // rules/embeddings might settle it first; if the LLM was consulted its answer must be review-only and value-free
+    expect(received.length, 'the LLM should have been consulted for this unsettled field').toBeGreaterThan(0);
+    for (const secret of Object.values(PROFILE.values)) expect(received.join()).not.toContain(secret);
+    expect(row.layer).toBe('llm');
+    expect(row.decision).toBe('review');
+    expect(row.confidence).toBeLessThanOrEqual(0.9);
+    // AI off → no call is made
+    received.length = 0;
+    await sw.evaluate(() => chrome.storage.local.remove('settings'));
+    await send('smartfill:scan', tabId);
+    expect(received).toHaveLength(0);
+    await page.close();
+  } finally {
+    proxy.close();
+    await sw.evaluate(() => chrome.storage.local.remove('settings'));
+  }
 });
