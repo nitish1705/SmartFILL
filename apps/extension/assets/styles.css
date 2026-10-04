@@ -1,0 +1,52 @@
+:root {
+  --bg: #ffffff;
+  --fg: #1f2328;
+  --muted: #656d76;
+  --line: #d8dee4;
+  --accent: #2563eb;
+  --ok: #16a34a;
+  --warn: #d97706;
+  --bad: #dc2626;
+  --chip: #f3f4f6;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171a;
+    --fg: #e6edf3;
+    --muted: #9198a1;
+    --line: #30363d;
+    --accent: #6ea8fe;
+    --chip: #21262d;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.4 system-ui, sans-serif; }
+h1 { font-size: 15px; margin: 0; }
+button {
+  font: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--chip);
+  color: var(--fg); padding: 6px 10px; border-radius: 6px;
+}
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button:disabled { opacity: 0.5; cursor: default; }
+input, textarea { font: inherit; width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+.muted { color: var(--muted); }
+
+/* popup */
+.popup { width: 360px; padding: 12px; display: grid; gap: 10px; }
+.pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.pill { background: var(--chip); border-radius: 999px; padding: 2px 8px; font-size: 12px; }
+.rows { max-height: 280px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; margin: 0; padding: 0; list-style: none; }
+.rows li { display: grid; grid-template-columns: 18px 1fr; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.rows li:last-child { border-bottom: 0; }
+.rows .sub { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.actions { display: flex; gap: 8px; }
+.actions .grow { flex: 1; }
+.error { color: var(--bad); }
+
+/* options */
+.options { max-width: 720px; margin: 24px auto; padding: 0 16px; display: grid; gap: 16px; }
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.grid label { display: grid; gap: 4px; }
+.grid .wide { grid-column: 1 / -1; }

@@ -1,0 +1,18 @@
+{
+  "personal.first_name": "Ada",
+  "personal.last_name": "Lovelace",
+  "personal.full_name": "Ada Lovelace",
+  "personal.salutation": "Ms.",
+  "personal.email": "ada@example.edu",
+  "personal.phone": "+91 98765 43210",
+  "personal.country": "India",
+  "personal.state": "Karnataka",
+  "personal.city": "Bengaluru",
+  "personal.address_line1": "12 Park Street",
+  "personal.postal_code": "560001",
+  "academic.institution": "Indian Institute of Science",
+  "academic.department": "Computer Science and Automation",
+  "academic.degree": "Ph.D.",
+  "professional.designation": "Research Scholar",
+  "research.research_interests": "Machine learning, natural language processing"
+}
