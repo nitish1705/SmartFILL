@@ -6,7 +6,7 @@ A local-first Chrome extension (Manifest V3) that maps web-form fields to a prof
 
 * **Careful by design** — rules → on-device embeddings → optional value-free LLM; unknown fields and missing details are left blank; passwords, cards, OTPs and ID numbers are never touched; it never submits a form.
 * **Private** — no account, server or analytics. Optional passphrase lock, encrypted export, delete-everything.
-* **Verified** — 77 unit tests, 8 proxy tests and 15 end-to-end tests that drive the real extension in Chromium (including a real react-select and WCAG 2.1 AA checks).
+* **Verified** — 77 unit tests, 8 proxy tests and 16 end-to-end tests that drive the real extension in Chromium (including a real react-select and WCAG 2.1 AA checks).
 
 Status: Phases 0–5 of [`plan.md`](plan.md) are implemented, plus the Phase 6 CV/PDF import (local, review-queue only). Not done: the parts that need people or external accounts (user study, live-site checklist, Web Store submission, real-LLM measurements) and the Phase 6 items that need a backend or conflict with the privacy model (cloud sync, analytics, WebLLM, RAG). See [`docs/evaluation.md`](docs/evaluation.md) for measured results and honest limitations.
 

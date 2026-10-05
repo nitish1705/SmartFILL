@@ -28,7 +28,7 @@ For the end-to-end tests also install a browser once: `npx playwright install ch
 ```bash
 npm run typecheck   # tsc for packages/eval, then the extension
 npm test            # 77 Vitest tests: core, DOM (jsdom), eval gates, study analysis, CV extraction
-npm run e2e         # builds an E2E variant and runs 15 Playwright tests in real Chromium
+npm run e2e         # builds an E2E variant and runs 16 Playwright tests in real Chromium
 npm run eval        # development-set report (+ ablations, risk-coverage CSV)
 npx tsx eval/run.ts --test   # held-out set (do not tune on it)
 npm run calibrate   # refit the embedding calibration (needs fetch-model)
@@ -85,8 +85,8 @@ Without an active submission only the first author block is filled (from *me*).
 Options → **Site rules** → tick *Learn from my corrections* (off by default). Then, in the review panel, changing a field’s meaning (or “never fill here”) is remembered for **that site only**: label + chosen field name, never values. Manage or forget rules in the same tab.
 
 ### AI assist (optional, off by default)
-Options → **AI assist**: choose **Local model (Ollama)** (`http://localhost:11434`, e.g. `llama3.1:8b`) or **My proxy server**. The page shows the exact JSON that would be sent and the last request actually sent. Only field descriptions and candidate field *names* are sent — never your values. Answers appear only as *review* items.
-Proxy: see [`services/llm-proxy/README.md`](services/llm-proxy/README.md). Ollama support is implemented but *(not verified against a real Ollama server)*.
+Options → **AI assist**: choose **Groq** (paste your own Groq API key; default model `llama-3.3-70b-versatile`) or **My proxy server**. The Groq key is stored only in this browser, unencrypted, and sent only to `api.groq.com`; Groq receives the field descriptions shown in the page’s payload preview. Use a key with a spending limit. The page shows the exact JSON that would be sent and the last request actually sent. Only field descriptions and candidate field *names* are sent — never your values. Answers appear only as *review* items.
+Proxy: see [`services/llm-proxy/README.md`](services/llm-proxy/README.md). The Groq path is verified against a mock server in the E2E tests (request shape, auth header, no profile values, answer capped at review) but *(not against the live Groq API — no key was available)*.
 
 ### Data & privacy
 Options → **Data & privacy**: export (optionally passphrase-encrypted), import, **Lock** (AES-256-GCM; unlock from the popup or options after a browser restart), and **Delete all data**. Policy: `privacy.html` inside the extension, source in [`docs/privacy-policy.md`](docs/privacy-policy.md).

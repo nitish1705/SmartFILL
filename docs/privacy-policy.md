@@ -4,7 +4,7 @@ SmartFill fills web forms from a profile you enter yourself. It is built so that
 
 ## What SmartFill stores
 - The profiles you enter (yours and, optionally, co-authors’), paper submissions you define, and — only if you turn learning on — per-site rules (a field’s label and the profile field you chose for it, never a value).
-- Settings, including the AI endpoint if you configure one.
+- Settings, including the AI endpoint and, if you add one, your Groq API key (stored only in this browser, not encrypted by the lock).
 
 All of this is stored in your browser’s local extension storage. If you enable the lock it is encrypted with a key derived from your passphrase (PBKDF2-SHA-256, AES-256-GCM).
 
@@ -14,7 +14,7 @@ All of this is stored in your browser’s local extension storage. If you enable
 - It does not read pages in the background: it runs only when you click its button or use its shortcut.
 
 ## Optional AI assist (off by default)
-If you enable it and point it at your own proxy or a local Ollama model, SmartFill may send, for fields it cannot decide, the field’s label, placeholder, section heading, page title and a short list of candidate profile-field names. It never sends your profile values, the page URL, or page content. Answers are validated and can never fill a field without your review. The exact request is shown in Options → AI assist.
+If you enable it and choose Groq (with your own API key) or your own proxy server, SmartFill may send, for fields it cannot decide, the field’s label, placeholder, section heading, page title and a short list of candidate profile-field names. It never sends your profile values, the page URL, or page content. Answers are validated and can never fill a field without your review. The exact request is shown in Options → AI assist.
 
 ## Permissions
 | Permission | Why |

@@ -37,5 +37,5 @@ Request bodies and model output are never logged. Upstream errors are not echoed
 pip install -r requirements-dev.txt && pytest
 ```
 
-## Fully local alternative
-Choose **Local model (Ollama)** in the extension instead: no proxy, no network beyond `localhost:11434`.
+## Without a proxy
+Choose **Groq** in the extension instead and use your own Groq API key directly (stored in the browser; see the privacy notes in the AI settings).
