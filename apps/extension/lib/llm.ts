@@ -3,11 +3,12 @@ import type { Settings } from '@smartfill/schemas';
 
 type LlmSettings = Settings['llm'];
 
-const OLLAMA_DEFAULT = 'http://localhost:11434';
+export const GROQ_BASE = 'https://api.groq.com';
+export const GROQ_DEFAULT_MODEL = 'llama-3.3-70b-versatile';
 
 /** Proxy endpoints must be HTTPS (localhost excepted for development). */
 export function validateEndpoint(raw: string | undefined, provider: LlmSettings['provider']): URL {
-  const url = new URL(raw || (provider === 'ollama' ? OLLAMA_DEFAULT : ''));
+  const url = new URL(raw || (provider === 'groq' ? GROQ_BASE : ''));
   const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
   if (url.protocol !== 'https:' && !local) throw new Error('AI endpoint must use https (or localhost).');
   return url;
@@ -46,15 +47,17 @@ export async function callLlm(settings: LlmSettings, request: LlmRequest): Promi
     return postJson(new URL('/map-fields', base).toString(), request, headers);
   }
 
-  // Ollama: fully local
-  const res = (await postJson(new URL('/api/chat', base).toString(), {
-    model: settings.model || 'llama3.1:8b',
-    stream: false,
-    format: 'json',
+  // Groq: OpenAI-compatible chat completions with JSON mode. Needs the user's own API key.
+  if (!settings.token) throw new Error('Add your Groq API key in AI settings.');
+  const res = (await postJson(new URL('/openai/v1/chat/completions', base).toString(), {
+    model: settings.model || GROQ_DEFAULT_MODEL,
+    temperature: 0,
+    max_tokens: 2000,
+    response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: LLM_SYSTEM_PROMPT },
       { role: 'user', content: JSON.stringify(request) },
     ],
-  }, {})) as { message?: { content?: string } };
-  return JSON.parse(res.message?.content ?? 'null');
+  }, { authorization: `Bearer ${settings.token}` })) as { choices?: { message?: { content?: string } }[] };
+  return JSON.parse(res.choices?.[0]?.message?.content ?? 'null');
 }

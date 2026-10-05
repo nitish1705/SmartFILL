@@ -56,7 +56,7 @@ export function AiSettings() {
         Provider
         <select value={s.llm.provider} onChange={(e) => set({ provider: e.target.value as Settings['llm']['provider'] })}>
           <option value="off">Off (default)</option>
-          <option value="ollama">Local model (Ollama) — stays on this machine</option>
+          <option value="groq">Groq (cloud API — your own key)</option>
           <option value="proxy">My proxy server</option>
         </select>
       </label>
@@ -66,15 +66,26 @@ export function AiSettings() {
             Endpoint
             <input
               value={s.llm.endpoint ?? ''}
-              placeholder={s.llm.provider === 'ollama' ? 'http://localhost:11434' : 'https://my-proxy.example.com'}
+              placeholder={s.llm.provider === 'groq' ? 'https://api.groq.com (default)' : 'https://my-proxy.example.com'}
               onChange={(e) => set({ endpoint: e.target.value })}
             />
           </label>
-          {s.llm.provider === 'ollama' && (
-            <label>
-              Model
-              <input value={s.llm.model ?? ''} placeholder="llama3.1:8b" onChange={(e) => set({ model: e.target.value })} />
-            </label>
+          {s.llm.provider === 'groq' && (
+            <>
+              <label>
+                Model
+                <input value={s.llm.model ?? ''} placeholder="llama-3.3-70b-versatile" onChange={(e) => set({ model: e.target.value })} />
+              </label>
+              <label>
+                Groq API key
+                <input type="password" autoComplete="off" value={s.llm.token ?? ''} placeholder="gsk_…" onChange={(e) => set({ token: e.target.value })} />
+              </label>
+              <p className="muted wide">
+                The key is stored only in this browser (unencrypted, in extension settings) and sent only to Groq. Groq, a third
+                party, receives the field descriptions shown below under “Exactly what would be sent”. Use a key with a spending
+                limit, and remove it here to stop.
+              </p>
+            </>
           )}
           {s.llm.provider === 'proxy' && (
             <label>

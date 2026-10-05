@@ -458,3 +458,38 @@ test('CV import: a PDF is read in the browser, suggestions need approval, nothin
   expect(saved['academic.institution']).toBeUndefined(); // unticked guess was not saved
   await opt.close();
 });
+
+test('Groq provider: OpenAI-style request with the user key, no profile values, answer capped at review', async () => {
+  const seen: { auth?: string; url?: string; body: any }[] = [];
+  const groq = createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      const parsed = JSON.parse(body);
+      seen.push({ auth: req.headers.authorization, url: req.url, body: parsed });
+      const request = JSON.parse(parsed.messages[1].content);
+      const results = request.fields.map((f: any) => ({ field_id: f.field_id, matched_profile_key: f.candidate_keys.includes('academic.institution') ? 'academic.institution' : null, confidence: 0.99, reason: 'asks where the user studies' }));
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ results }) } }] }));
+    });
+  }).listen(0);
+  const port = (groq.address() as AddressInfo).port;
+  try {
+    await sw.evaluate(async ([d, p]) => chrome.storage.local.set({ onboarded: true, data: d, settings: { thresholds: { auto: 0.95, review: 0.8, ask: 0.5 }, llm: { enabled: true, provider: 'groq', endpoint: `http://localhost:${p}`, token: 'gsk_test_key', model: 'llama-3.3-70b-versatile' }, learning: { enabled: false }, locked: false } }), [store(), port] as const);
+    const { page, tabId } = await open('__odd.html');
+    const scan = (await send('smartfill:scan', tabId)) as any;
+    const row = scan.rows.find((r: any) => r.label.startsWith('Place you'));
+    expect(seen.length, 'Groq should have been consulted').toBeGreaterThan(0);
+    expect(seen[0]!.url).toBe('/openai/v1/chat/completions');
+    expect(seen[0]!.auth).toBe('Bearer gsk_test_key');
+    expect(seen[0]!.body).toMatchObject({ model: 'llama-3.3-70b-versatile', temperature: 0, response_format: { type: 'json_object' } });
+    const sent = JSON.stringify(seen[0]!.body);
+    for (const secret of ['ada@example.edu', 'Ada', 'Grace', 'University']) expect(sent).not.toContain(secret);
+    expect(row).toMatchObject({ layer: 'llm', decision: 'review' });
+    expect(row.confidence).toBeLessThanOrEqual(0.9);
+    await page.close();
+  } finally {
+    groq.close();
+    await sw.evaluate(() => chrome.storage.local.remove('settings'));
+  }
+});

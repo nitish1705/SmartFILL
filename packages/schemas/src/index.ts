@@ -10,11 +10,11 @@ export const SettingsSchema = z.object({
   thresholds: ThresholdsSchema,
   llm: z.object({
     enabled: z.boolean(),
-    provider: z.enum(['proxy', 'ollama', 'off']),
+    provider: z.enum(['proxy', 'groq', 'off']),
     endpoint: z.string().optional(),
-    /** Ollama model name. */
+    /** Groq model id. */
     model: z.string().optional(),
-    /** Optional shared secret for your own proxy (never an Anthropic API key). */
+    /** Proxy: optional shared secret. Groq: your Groq API key (stored on this device only). */
     token: z.string().optional(),
   }),
   learning: z.object({ enabled: z.boolean() }),
